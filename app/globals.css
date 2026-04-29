@@ -1,8 +1,11 @@
 @import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #1a1a1a;
 }
 
 @theme inline {
@@ -12,10 +15,11 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Force light mode - disable dark mode for better visibility */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #ffffff;
+    --foreground: #1a1a1a;
   }
 }
 
@@ -23,4 +27,41 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Ensure all regular text is dark and readable */
+p, h1, h2, h3, h4, h5, h6, span, div, label, li, td, th {
+  color: #1a1a1a;
+}
+
+/* Input fields - ensure text is dark and visible */
+input, textarea, select {
+  color: #1a1a1a !important;
+  background-color: #ffffff !important;
+}
+
+/* Placeholder text - lighter but visible */
+::placeholder {
+  color: #6b7280 !important;
+}
+
+/* Table text */
+table td, table th {
+  color: #1a1a1a;
+}
+
+/* Keep button text colors as they were originally */
+/* Only override buttons that might have become white */
+button {
+  color: inherit;
+}
+
+/* Ensure white backgrounds have dark text */
+.bg-white, .bg-gray-50, .bg-gray-100 {
+  color: #1a1a1a;
+}
+
+/* Keep status badge colors but ensure text is readable */
+.bg-red-100, .bg-green-100, .bg-blue-100, .bg-yellow-100, .bg-purple-100, .bg-orange-100 {
+  color: #1a1a1a;
 }

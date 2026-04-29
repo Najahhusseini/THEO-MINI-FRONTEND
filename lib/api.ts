@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://192.168.8.206:4000/api'
+const API_BASE_URL = 'http://localhost:4000/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -128,13 +128,15 @@ export const getShiftTypes = async () => {
   return response.data
 }
 
-export const getScheduleStaff = async () => {
-  const response = await api.get('/schedule/staff')
+export const getScheduleStaff = async (role?: string) => {
+  const url = role ? `/schedule/staff?role=${role}` : '/schedule/staff'
+  const response = await api.get(url)
   return response.data
 }
 
-export const getWeeklySchedule = async (weekStart: string) => {
-  const response = await api.get(`/schedule/weekly/${weekStart}`)
+export const getWeeklySchedule = async (weekStart: string, department?: string) => {
+  const url = department ? `/schedule/weekly/${weekStart}?department=${department}` : `/schedule/weekly/${weekStart}`
+  const response = await api.get(url)
   return response.data
 }
 
@@ -156,6 +158,231 @@ export const getMySchedule = async (weekStart?: string) => {
 
 export const getExpectedArrivals = async (weekStart: string) => {
   const response = await api.get(`/schedule/arrivals/${weekStart}`)
+  return response.data
+}
+
+// ============ CLEANING APIs ============
+
+// --- Head of Housekeeping / Management APIs ---
+export const getRoomsWithCleaning = async () => {
+  const response = await api.get('/cleaning/rooms')
+  return response.data
+}
+
+export const getHousekeepingStaff = async () => {
+  const response = await api.get('/cleaning/staff/housekeeping')
+  return response.data
+}
+
+export const getAvailableCleaningStaff = async () => {
+  const response = await api.get('/cleaning/staff/available')
+  return response.data
+}
+
+export const upsertCleaningRequest = async (roomId: string, type: string = 'stay_over', notes?: string) => {
+  const response = await api.post('/cleaning/request', { roomId, type, notes })
+  return response.data
+}
+
+export const assignCleaning = async (requestId: string, assignedTo: string) => {
+  const response = await api.post('/cleaning/assign', { requestId, assignedTo })
+  return response.data
+}
+
+export const updateRoomCleaningStatus = async (roomId: string, cleaningStatus: string) => {
+  const response = await api.patch(`/cleaning/rooms/${roomId}/status`, { cleaningStatus })
+  return response.data
+}
+
+export const completeCleaning = async (requestId: string) => {
+  const response = await api.post('/cleaning/complete', { requestId })
+  return response.data
+}
+
+export const ensureCheckoutRequests = async () => {
+  const response = await api.post('/cleaning/ensure-checkouts')
+  return response.data
+}
+
+// NEW: Auto-create cleaning requests for all dirty rooms
+export const ensureDirtyRoomRequests = async () => {
+  const response = await api.post('/cleaning/ensure-dirty-requests')
+  return response.data
+}
+
+export const getCleaningStats = async () => {
+  const response = await api.get('/cleaning/daily-stats')
+  return response.data
+}
+
+export const getCompletedCleaningTasks = async () => {
+  const response = await api.get('/cleaning/completed-tasks')
+  return response.data
+}
+
+// --- Cleaning Staff APIs (My Work) ---
+export const getMyCleaningTasks = async () => {
+  const response = await api.get('/cleaning/my-tasks')
+  return response.data
+}
+
+export const getMyAssignedRooms = async () => {
+  const response = await api.get('/cleaning/my-rooms')
+  return response.data
+}
+
+export const updateCleaningTaskStatus = async (requestId: string, status: 'accepted' | 'in_progress' | 'completed') => {
+  const response = await api.patch(`/cleaning/tasks/${requestId}/status`, { status })
+  return response.data
+}
+
+export const releaseRoom = async (roomId: string) => {
+  const response = await api.post(`/cleaning/rooms/${roomId}/release`)
+  return response.data
+}
+
+export const reassignRoom = async (roomId: string, newStaffId: string) => {
+  const response = await api.patch(`/cleaning/rooms/${roomId}/reassign`, { newStaffId })
+  return response.data
+}
+
+export const getTaskMessages = async (requestId: string) => {
+  const response = await api.get(`/cleaning/tasks/${requestId}/messages`)
+  return response.data
+}
+
+export const sendTaskMessage = async (requestId: string, message: string) => {
+  const response = await api.post(`/cleaning/tasks/${requestId}/messages`, { message })
+  return response.data
+}
+
+export const requestSuppliesForTask = async (requestId: string, itemName: string, quantity: number, notes?: string) => {
+  const response = await api.post(`/cleaning/tasks/${requestId}/supplies`, { itemName, quantity, notes })
+  return response.data
+}
+
+// --- Do Not Disturb ---
+export const updateRoomDoNotDisturb = async (roomId: string, doNotDisturb: boolean) => {
+  const response = await api.patch(`/cleaning/rooms/${roomId}/dnd`, { doNotDisturb })
+  return response.data
+}
+
+export const markRoomAwaitingGuest = async (roomId: string) => {
+  const response = await api.patch(`/cleaning/rooms/${roomId}/awaiting`)
+  return response.data
+}
+
+// --- Out of Order APIs ---
+export const setRoomOutOfOrder = async (roomId: string, reason: string) => {
+  const response = await api.post(`/cleaning/rooms/${roomId}/out-of-order`, { reason })
+  return response.data
+}
+
+export const removeRoomOutOfOrder = async (roomId: string) => {
+  const response = await api.delete(`/cleaning/rooms/${roomId}/out-of-order`)
+  return response.data
+}
+
+export const getOutOfOrderRooms = async () => {
+  const response = await api.get('/cleaning/out-of-order')
+  return response.data
+}
+
+// --- Legacy / Compatability APIs ---
+export const getPendingCleaning = async () => {
+  const response = await api.get('/cleaning/pending')
+  return response.data
+}
+
+export const getCheckoutCounts = async (weekStart: string) => {
+  const response = await api.get(`/cleaning/checkouts/${weekStart}`)
+  return response.data
+}
+
+export const requestStayOverCleaning = async (roomId: string, notes?: string, type: string = 'stay_over') => {
+  const response = await api.post('/cleaning/request', { roomId, notes, type })
+  return response.data
+}
+
+export const getCleaningRequestsBySubRole = async (subRole: string) => {
+  const response = await api.get(`/cleaning/by-subrole/${subRole}`)
+  return response.data
+}
+
+export const getCheckoutCleaning = async () => {
+  const response = await api.get('/cleaning/checkout')
+  return response.data
+}
+
+export const getStayOverCleaning = async () => {
+  const response = await api.get('/cleaning/stayover')
+  return response.data
+}
+
+// ============ TASKS APIs ============
+export const createTask = async (data: {
+  title: string
+  description: string
+  assignedTo?: string
+  priority?: string
+  dueDate?: string
+  mentions?: string[]
+}) => {
+  const response = await api.post('/tasks', data)
+  return response.data
+}
+
+export const getTasks = async (assignedTo?: string, status?: string) => {
+  let url = '/tasks'
+  const params = new URLSearchParams()
+  if (assignedTo) params.append('assignedTo', assignedTo)
+  if (status && status !== 'all') params.append('status', status)
+  if (params.toString()) url += `?${params.toString()}`
+  const response = await api.get(url)
+  return response.data
+}
+
+export const updateTaskStatus = async (taskId: string, status: string) => {
+  const response = await api.patch(`/tasks/${taskId}/status`, { status })
+  return response.data
+}
+
+export const completeInspectionTask = async (taskId: string) => {
+  const response = await api.patch(`/tasks/${taskId}/inspect-complete`)
+  return response.data
+}
+
+// ============ SUPPLIES APIs ============
+export const getSupplyItems = async (category?: string) => {
+  const url = category ? `/supplies?category=${category}` : '/supplies'
+  const response = await api.get(url)
+  return response.data
+}
+
+export const getLowStockItems = async () => {
+  const response = await api.get('/supplies/low-stock')
+  return response.data
+}
+
+export const createSupplyItem = async (data: {
+  categoryId: string
+  name: string
+  itemsPerBox: number
+  initialBoxes: number
+  minThresholdItems: number
+}) => {
+  const response = await api.post('/supplies', data)
+  return response.data
+}
+
+export const adjustStock = async (itemId: string, quantityBoxes: number, reason: string, referenceType?: string, referenceId?: string) => {
+  const response = await api.post(`/supplies/${itemId}/adjust`, { quantityBoxes, reason, referenceType, referenceId })
+  return response.data
+}
+
+export const getTransactionHistory = async (itemId: string, limit?: number) => {
+  const url = limit ? `/supplies/${itemId}/history?limit=${limit}` : `/supplies/${itemId}/history`
+  const response = await api.get(url)
   return response.data
 }
 

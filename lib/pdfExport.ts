@@ -4,12 +4,13 @@ import autoTable from 'jspdf-autotable'
 interface StaffShift {
   staffName: string
   role: string
-  shifts: { day: string; shiftName: string; time?: string }[]
+  shifts: { day: string; shiftName: string; time?: string; notes?: string }[]
 }
 
 interface DayArrival {
   date: string
   count: number
+  isHeavy: boolean
 }
 
 export async function exportScheduleToPDF(
@@ -55,7 +56,11 @@ export async function exportScheduleToPDF(
     const row = [staff.staffName, staff.role]
     for (const arrival of arrivals) {
       const shiftForDay = staff.shifts.find(s => s.day === arrival.date)
-      row.push(shiftForDay ? `${shiftForDay.shiftName}${shiftForDay.time ? `\n${shiftForDay.time}` : ''}` : '—')
+      let cellContent = shiftForDay ? `${shiftForDay.shiftName}${shiftForDay.time ? `\n${shiftForDay.time}` : ''}` : '—'
+      if (shiftForDay?.notes) {
+        cellContent += `\n📝 ${shiftForDay.notes.slice(0, 30)}`
+      }
+      row.push(cellContent)
     }
     return row
   })

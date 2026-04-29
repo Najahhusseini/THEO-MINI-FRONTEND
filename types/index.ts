@@ -2,7 +2,8 @@ export interface Staff {
   id: string
   name: string
   email: string
-  role: 'admin' | 'manager' | 'frontdesk' | 'housekeeping' | 'maintenance'
+  role: 'admin' | 'manager' | 'frontdesk' | 'housekeeping' | 'maintenance' | 'head_housekeeping'
+  sub_role?: 'room_cleaning' | 'hallway' | 'laundry' | 'general'
   tenantId: string
 }
 

@@ -7,13 +7,23 @@ import { getRooms, updateRoomStatus } from '@/lib/api'
 import { Room } from '@/types'
 import toast from 'react-hot-toast'
 import AttendanceCard from '@/components/AttendanceCard'
+import SuppliesTab from '@/components/SuppliesTab'
 import ShiftTracker from '@/components/ShiftTracker'
 import StaffAttendanceTable from '@/components/StaffAttendanceTable'
 import TabBar from '@/components/TabBar'
 import RoomsTab from '@/components/RoomsTab'
 import ScheduleBuilder from '@/components/ScheduleBuilder'
+import CleaningManagementTab from '@/components/CleaningManagementTab'
+import StaffMyRooms from '@/components/StaffMyRooms'
+import TasksTab from '@/components/TasksTab'
 import MySchedule from '@/components/MySchedule'
+import SupplyRequestsTab from '@/components/SupplyRequestsTab'
+import StaffSupplyRequest from '@/components/StaffSupplyRequest'
+import NotificationBell from '@/components/NotificationBell'
+import CleaningPerformance from '@/components/CleaningPerformance'
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
+import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
+import { RoomProvider } from '@/contexts/RoomContext'
 
 export default function DashboardPage() {
   const { staff, logout } = useAuth()
@@ -25,6 +35,7 @@ export default function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'dirty' | 'cleaning' | 'ready' | 'inspected'>('all')
   const [roomSearch, setRoomSearch] = useState('')
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false)
 
   useEffect(() => {
     if (!staff) {
@@ -42,6 +53,23 @@ export default function DashboardPage() {
       toast.error('Failed to load rooms')
     } finally {
       setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!areNotificationsSupported()) return
+    if (getNotificationPermission() === 'default') {
+      setShowNotificationPrompt(true)
+    }
+  }, [])
+
+  const enableNotifications = async () => {
+    const success = await subscribeToPushNotifications()
+    if (success) {
+      setShowNotificationPrompt(false)
+      toast.success('Notifications enabled! You will receive schedule updates.')
+    } else {
+      toast.error('Could not enable notifications. Please check browser settings.')
     }
   }
 
@@ -99,26 +127,47 @@ export default function DashboardPage() {
     setRoomSearch('')
   }
 
-  // Define tabs based on user role
   const getTabs = () => {
     const role = staff?.role || 'staff'
     const baseTabs = [
-      { id: 'rooms', label: 'Rooms', icon: '🏠', roles: ['admin', 'manager', 'frontdesk', 'housekeeping'] },
-      { id: 'shifts', label: 'My Shifts', icon: '⏱️', roles: ['admin', 'manager', 'frontdesk', 'housekeeping', 'maintenance'] },
-      { id: 'tasks', label: 'Tasks', icon: '✅', roles: ['admin', 'manager', 'frontdesk', 'housekeeping', 'maintenance'] },
+      { id: 'rooms', label: '🏠 Rooms', icon: '🏠', roles: ['admin', 'manager', 'frontdesk', 'housekeeping', 'head_housekeeping'] },
+      { id: 'shifts', label: '⏱️ My Shifts', icon: '⏱️', roles: ['admin', 'manager', 'frontdesk', 'housekeeping', 'maintenance', 'head_housekeeping'] },
+      { id: 'tasks', label: '✅ Tasks', icon: '✅', roles: ['admin', 'manager', 'frontdesk', 'housekeeping', 'maintenance', 'head_housekeeping'] },
     ]
     
-    // Schedule tab - different view for admin vs staff
-    if (role === 'admin' || role === 'manager') {
-      baseTabs.push({ id: 'schedule', label: 'Schedule Builder', icon: '📅', roles: ['admin', 'manager'] })
+    if (role === 'admin' || role === 'manager' || role === 'head_housekeeping') {
+      baseTabs.push({ id: 'cleaning', label: '🧼 Cleaning Board', icon: '🧹', roles: ['admin', 'manager', 'head_housekeeping'] })
+    } else if (role === 'housekeeping') {
+      baseTabs.push({ id: 'my-rooms', label: '🧹 My Rooms', icon: '🧹', roles: ['housekeeping'] })
+    }
+    
+    if (role === 'admin' || role === 'manager' || role === 'head_housekeeping') {
+      baseTabs.push({ id: 'schedule', label: '📅 Schedule Builder', icon: '📅', roles: ['admin', 'manager', 'head_housekeeping'] })
     } else {
-      baseTabs.push({ id: 'schedule', label: 'My Schedule', icon: '📅', roles: ['frontdesk', 'housekeeping', 'maintenance'] })
+      baseTabs.push({ id: 'schedule', label: '📅 My Schedule', icon: '📅', roles: ['frontdesk', 'housekeeping', 'maintenance'] })
+    }
+    
+    if (role === 'admin' || role === 'manager' || role === 'head_housekeeping') {
+      baseTabs.push({ id: 'supplies', label: '📦 Supplies', icon: '📦', roles: ['admin', 'manager', 'head_housekeeping'] })
+    }
+    
+    if (role === 'admin' || role === 'manager' || role === 'head_housekeeping') {
+      baseTabs.push({ id: 'supply-requests', label: '📋 Supply Requests', icon: '📋', roles: ['admin', 'manager', 'head_housekeeping'] })
+    }
+    
+    if (role === 'housekeeping') {
+      baseTabs.push({ id: 'staff-supply', label: '📦 Request Supplies', icon: '📦', roles: ['housekeeping'] })
+    }
+    
+    if (role === 'head_housekeeping') {
+      baseTabs.push({ id: 'performance', label: '📊 Performance', icon: '📊', roles: ['head_housekeeping'] })
     }
     
     if (role === 'admin' || role === 'manager') {
-      baseTabs.push({ id: 'staff', label: 'Staff', icon: '👥', roles: ['admin', 'manager'] })
-      baseTabs.push({ id: 'reports', label: 'Reports', icon: '📊', roles: ['admin', 'manager'] })
+      baseTabs.push({ id: 'staff', label: '👥 Staff', icon: '👥', roles: ['admin', 'manager'] })
+      baseTabs.push({ id: 'reports', label: '📊 Reports', icon: '📊', roles: ['admin', 'manager'] })
     }
+    
     return baseTabs
   }
 
@@ -131,129 +180,136 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <KeyboardShortcuts onStatusChange={handleKeyboardStatusChange} enabled={activeTab === 'rooms'} />
+    <RoomProvider>
+      <div className="min-h-screen bg-gray-50">
+        <KeyboardShortcuts onStatusChange={handleKeyboardStatusChange} enabled={activeTab === 'rooms'} />
 
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-800">THEO Mini</h1>
-            <p className="text-xs sm:text-sm text-gray-500">Welcome, {staff?.name}</p>
+        <header className="bg-white shadow-sm border-b sticky top-0 z-10">
+          <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+            <div>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-800">THEO Mini</h1>
+              <p className="text-xs sm:text-sm text-gray-500">Welcome, {staff?.name}</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <NotificationBell />
+              <span className="px-2 sm:px-3 py-1 bg-gray-100 rounded-full text-xs sm:text-sm">
+                {staff?.role === 'head_housekeeping' ? 'Head of Housekeeping' : staff?.role === 'housekeeping' ? 'Housekeeping Staff' : staff?.role}
+              </span>
+              <button
+                onClick={logout}
+                className="px-3 sm:px-4 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 transition"
+              >
+                Logout
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="px-2 sm:px-3 py-1 bg-gray-100 rounded-full text-xs sm:text-sm">
-              {staff?.role}
-            </span>
-            <button
-              onClick={logout}
-              className="px-3 sm:px-4 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 transition"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+        </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
-        {/* Tab Bar */}
-        <TabBar
-          tabs={getTabs()}
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          userRole={staff?.role || 'staff'}
-        />
-
-        {/* Rooms Tab */}
-        {activeTab === 'rooms' && (
-          <div>
-            {/* Attendance Card and Summary */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-              <div className="lg:col-span-1">
-                <AttendanceCard />
-              </div>
-              <div className="lg:col-span-2">
-                <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg shadow-md p-6 text-white">
-                  <h3 className="text-lg font-semibold mb-2">Today's Summary</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-2xl font-bold">{rooms.length}</p>
-                      <p className="text-sm opacity-90">Total Rooms</p>
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold">{rooms.filter(r => r.status === 'dirty').length}</p>
-                      <p className="text-sm opacity-90">Dirty</p>
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold">{rooms.filter(r => r.status === 'ready').length}</p>
-                      <p className="text-sm opacity-90">Ready</p>
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold">{rooms.filter(r => r.status === 'inspected').length}</p>
-                      <p className="text-sm opacity-90">Inspected</p>
-                    </div>
-                  </div>
+        <main className="max-w-7xl mx-auto px-4 py-6">
+          {showNotificationPrompt && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-600 text-xl">🔔</span>
+                <div>
+                  <p className="text-sm text-amber-800 font-medium">Get schedule notifications</p>
+                  <p className="text-xs text-amber-600">Receive alerts when new schedules are published</p>
                 </div>
               </div>
+              <button
+                onClick={enableNotifications}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition text-sm"
+              >
+                Enable Notifications
+              </button>
             </div>
+          )}
 
-            {/* Rooms Tab Content */}
-            <RoomsTab
-              rooms={rooms}
-              loading={loading}
-              selectedFloor={selectedFloor}
-              statusFilter={statusFilter}
-              roomSearch={roomSearch}
-              selectedRoomId={selectedRoomId}
-              availableFloors={availableFloors}
-              floorStats={floorStats}
-              onFloorChange={setSelectedFloor}
-              onStatusFilterChange={setStatusFilter}
-              onRoomSearchChange={setRoomSearch}
-              onRoomSelect={setSelectedRoomId}
-              onStatusChange={handleStatusChange}
-              onClearFilters={clearFilters}
-            />
-          </div>
-        )}
+          <TabBar
+            tabs={getTabs()}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            userRole={staff?.role || 'staff'}
+          />
 
-        {/* My Shifts Tab */}
-        {activeTab === 'shifts' && (
-          <div className="max-w-3xl mx-auto">
-            <ShiftTracker />
-          </div>
-        )}
+          {activeTab === 'rooms' && (
+            <div>
+              <div className="mb-8">
+                <AttendanceCard />
+              </div>
+              <RoomsTab
+                rooms={rooms}
+                loading={loading}
+                selectedFloor={selectedFloor}
+                statusFilter={statusFilter}
+                roomSearch={roomSearch}
+                selectedRoomId={selectedRoomId}
+                availableFloors={availableFloors}
+                floorStats={floorStats}
+                onFloorChange={setSelectedFloor}
+                onStatusFilterChange={setStatusFilter}
+                onRoomSearchChange={setRoomSearch}
+                onRoomSelect={setSelectedRoomId}
+                onStatusChange={handleStatusChange}
+                onClearFilters={clearFilters}
+              />
+            </div>
+          )}
 
-        {/* Schedule Tab - Different view based on role */}
-        {activeTab === 'schedule' && (
-          <div>
-            {(staff?.role === 'admin' || staff?.role === 'manager') ? (
-              <ScheduleBuilder />
-            ) : (
-              <MySchedule />
-            )}
-          </div>
-        )}
+          {activeTab === 'shifts' && (
+            <div className="max-w-3xl mx-auto">
+              <ShiftTracker />
+            </div>
+          )}
 
-        {/* Tasks Tab (placeholder) */}
-        {activeTab === 'tasks' && (
-          <div className="text-center py-12 bg-white rounded-lg border">
-            <p className="text-gray-500">Task management coming soon...</p>
-          </div>
-        )}
+          {activeTab === 'schedule' && (
+            <div>
+              {(staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'head_housekeeping') ? (
+                <ScheduleBuilder />
+              ) : (
+                <MySchedule />
+              )}
+            </div>
+          )}
 
-        {/* Staff Tab (admin/manager only) */}
-        {activeTab === 'staff' && (staff?.role === 'admin' || staff?.role === 'manager') && (
-          <StaffAttendanceTable />
-        )}
+          {activeTab === 'cleaning' && (
+            <CleaningManagementTab />
+          )}
 
-        {/* Reports Tab (placeholder) */}
-        {activeTab === 'reports' && (staff?.role === 'admin' || staff?.role === 'manager') && (
-          <div className="text-center py-12 bg-white rounded-lg border">
-            <p className="text-gray-500">Reports & analytics coming soon...</p>
-          </div>
-        )}
-      </main>
-    </div>
+          {activeTab === 'my-rooms' && (
+            <StaffMyRooms />
+          )}
+
+          {activeTab === 'tasks' && (
+            <TasksTab />
+          )}
+
+          {activeTab === 'supplies' && (
+            <SuppliesTab />
+          )}
+
+          {activeTab === 'supply-requests' && (staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'head_housekeeping') && (
+            <SupplyRequestsTab />
+          )}
+
+          {activeTab === 'staff-supply' && staff?.role === 'housekeeping' && (
+            <StaffSupplyRequest />
+          )}
+
+          {activeTab === 'performance' && staff?.role === 'head_housekeeping' && (
+            <CleaningPerformance />
+          )}
+
+          {activeTab === 'staff' && (staff?.role === 'admin' || staff?.role === 'manager') && (
+            <StaffAttendanceTable />
+          )}
+
+          {activeTab === 'reports' && (staff?.role === 'admin' || staff?.role === 'manager') && (
+            <div className="text-center py-12 bg-white rounded-lg border">
+              <p className="text-gray-500">Reports & analytics coming soon...</p>
+            </div>
+          )}
+        </main>
+      </div>
+    </RoomProvider>
   )
 }

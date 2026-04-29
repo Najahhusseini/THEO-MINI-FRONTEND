@@ -1,0 +1,510 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { Room } from '@/types'
+import { updateRoomStatus, getScheduleStaff, requestStayOverCleaning, assignCleaning } from '@/lib/api'
+import toast from 'react-hot-toast'
+
+interface RoomsTabProps {
+  rooms: Room[]
+  loading: boolean
+  selectedFloor: number
+  statusFilter: 'all' | 'dirty' | 'cleaning' | 'ready' | 'inspected'
+  roomSearch: string
+  selectedRoomId: string | null
+  availableFloors: number[]
+  floorStats: { total: number; dirty: number; cleaning: number; ready: number; inspected: number }
+  onFloorChange: (floor: number) => void
+  onStatusFilterChange: (filter: 'all' | 'dirty' | 'cleaning' | 'ready' | 'inspected') => void
+  onRoomSearchChange: (search: string) => void
+  onRoomSelect: (roomId: string | null) => void
+  onStatusChange: (roomId: string, newStatus: Room['status']) => void
+  onClearFilters: () => void
+}
+
+interface Staff {
+  id: string
+  name: string
+  role: string
+  sub_role?: string
+}
+
+const statusColors = {
+  dirty: 'bg-red-600 text-white',
+  cleaning: 'bg-yellow-500 text-white',
+  ready: 'bg-green-600 text-white',
+  inspected: 'bg-blue-600 text-white',
+}
+
+const statusLabels = {
+  dirty: 'Dirty',
+  cleaning: 'Cleaning',
+  ready: 'Ready',
+  inspected: 'Inspected',
+}
+
+const roleColors: { [key: string]: string } = {
+  admin: 'bg-purple-200 text-purple-900',
+  manager: 'bg-indigo-200 text-indigo-900',
+  frontdesk: 'bg-cyan-200 text-cyan-900',
+  housekeeping: 'bg-emerald-200 text-emerald-900',
+  head_housekeeping: 'bg-emerald-200 text-emerald-900',
+  maintenance: 'bg-orange-200 text-orange-900',
+  auto: 'bg-gray-200 text-gray-700',
+}
+
+const subRoleLabels: Record<string, { label: string; icon: string }> = {
+  room_cleaning: { label: 'Room Cleaning', icon: '🛏️' },
+  hallway: { label: 'Hallway', icon: '🚪' },
+  laundry: { label: 'Laundry', icon: '🧺' },
+  general: { label: 'General', icon: '🧹' },
+}
+
+const getInitial = (name: string) => name.charAt(0).toUpperCase()
+
+const formatRelativeTime = (dateString: string) => {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMinutes = Math.floor((now.getTime() - date.getTime()) / 60000)
+  if (diffMinutes < 1) return 'Just now'
+  if (diffMinutes < 60) return `${diffMinutes} min ago`
+  if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)} hours ago`
+  return date.toLocaleDateString()
+}
+
+export default function RoomsTab({
+  rooms,
+  loading,
+  selectedFloor,
+  statusFilter,
+  roomSearch,
+  selectedRoomId,
+  availableFloors,
+  floorStats,
+  onFloorChange,
+  onStatusFilterChange,
+  onRoomSearchChange,
+  onRoomSelect,
+  onStatusChange,
+  onClearFilters,
+}: RoomsTabProps) {
+  const [selectedRoomForModal, setSelectedRoomForModal] = useState<Room | null>(null)
+  const [housekeepingStaff, setHousekeepingStaff] = useState<Staff[]>([])
+  const [selectedStaffId, setSelectedStaffId] = useState('')
+  const [assigning, setAssigning] = useState(false)
+
+  // Fetch housekeeping staff when modal opens
+  useEffect(() => {
+    if (selectedRoomForModal) {
+      loadStaff()
+    }
+  }, [selectedRoomForModal])
+
+  const loadStaff = async () => {
+    try {
+      const staffData = await getScheduleStaff('housekeeping')
+      setHousekeepingStaff(staffData || [])
+    } catch (error) {
+      console.error('Failed to load staff', error)
+    }
+  }
+
+  const handleAssignCleaning = async (type: 'stay_over' | 'checkout') => {
+    if (!selectedRoomForModal) return
+    if (!selectedStaffId) {
+      toast.error('Please select a staff member')
+      return
+    }
+    setAssigning(true)
+    try {
+      // Create cleaning request with the specified type
+      const request = await requestStayOverCleaning(selectedRoomForModal.id, `Manual assignment from rooms tab - ${type}`, type)
+      // Assign to selected staff
+      await assignCleaning(request.id, selectedStaffId)
+      toast.success(`Room assigned to ${housekeepingStaff.find(s => s.id === selectedStaffId)?.name} for ${type === 'stay_over' ? 'stay-over' : 'checkout'} cleaning`)
+      setSelectedRoomForModal(null)
+      setSelectedStaffId('')
+      // Dispatch refresh event for InHouseCleaningTab
+      window.dispatchEvent(new CustomEvent('refresh-cleaning'))
+    } catch (error) {
+      console.error('Assign error:', error)
+      toast.error('Failed to assign cleaning')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  const roomsByFloor = rooms.reduce((acc: { [key: number]: Room[] }, room) => {
+    const floor = room.floor || 1
+    if (!acc[floor]) acc[floor] = []
+    acc[floor].push(room)
+    return acc
+  }, {})
+
+  let currentFloorRooms = roomsByFloor[selectedFloor] || []
+  if (statusFilter !== 'all') {
+    currentFloorRooms = currentFloorRooms.filter(room => room.status === statusFilter)
+  }
+  if (roomSearch.trim() !== '') {
+    currentFloorRooms = currentFloorRooms.filter(room =>
+      room.roomNumber.toLowerCase().includes(roomSearch.toLowerCase())
+    )
+  }
+
+  const handleCardClick = (room: Room) => {
+    setSelectedRoomForModal(room)
+  }
+
+  const handleModalStatusChange = async (roomId: string, newStatus: Room['status']) => {
+    await onStatusChange(roomId, newStatus)
+    if (selectedRoomForModal && selectedRoomForModal.id === roomId) {
+      setSelectedRoomForModal({
+        ...selectedRoomForModal,
+        status: newStatus,
+        lastStatusChange: new Date().toISOString(),
+        lastUpdatedBy: selectedRoomForModal.lastUpdatedBy,
+        lastUpdatedRole: selectedRoomForModal.lastUpdatedRole,
+        lastUpdatedAt: new Date().toISOString(),
+      })
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+          <div key={i} className="bg-white rounded-lg shadow-md border overflow-hidden animate-pulse">
+            <div className="p-4 space-y-3">
+              <div className="h-5 bg-gray-200 rounded w-3/4"></div>
+              <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+              <div className="h-10 bg-gray-200 rounded"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      {/* Floor navigation tabs */}
+      <div className="border-b border-gray-200 overflow-x-auto mb-4">
+        <nav className="flex flex-nowrap gap-1 sm:gap-2 -mb-px min-w-max">
+          {availableFloors.map(floor => (
+            <button
+              key={floor}
+              onClick={() => onFloorChange(floor)}
+              className={`px-4 sm:px-6 py-2.5 text-sm font-medium rounded-t-lg transition touch-manipulation ${
+                selectedFloor === floor
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Floor {floor} <span className="ml-1 text-xs">({roomsByFloor[floor]?.length || 0})</span>
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* Search bar */}
+      <div className="relative mb-4">
+        <input
+          type="text"
+          placeholder="Search room number..."
+          value={roomSearch}
+          onChange={(e) => onRoomSearchChange(e.target.value)}
+          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
+        />
+        {roomSearch && (
+          <button
+            onClick={() => onRoomSearchChange('')}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Colorful Stats Filter Buttons */}
+      <div className="grid grid-cols-5 gap-2 mb-4">
+        <button
+          onClick={() => onStatusFilterChange('all')}
+          className={`rounded-lg p-2 text-center transition-all duration-200 touch-manipulation ${
+            statusFilter === 'all'
+              ? 'bg-gray-700 text-white shadow-md scale-105'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200 hover:scale-105'
+          }`}
+        >
+          <div className="text-xl font-bold">{floorStats.total}</div>
+          <div className="text-xs">Total</div>
+        </button>
+        <button
+          onClick={() => onStatusFilterChange('dirty')}
+          className={`rounded-lg p-2 text-center transition-all duration-200 touch-manipulation ${
+            statusFilter === 'dirty'
+              ? 'bg-red-600 text-white shadow-md scale-105'
+              : 'bg-red-50 text-red-700 hover:bg-red-100 hover:scale-105'
+          }`}
+        >
+          <div className="text-xl font-bold">{floorStats.dirty}</div>
+          <div className="text-xs">Dirty</div>
+        </button>
+        <button
+          onClick={() => onStatusFilterChange('cleaning')}
+          className={`rounded-lg p-2 text-center transition-all duration-200 touch-manipulation ${
+            statusFilter === 'cleaning'
+              ? 'bg-yellow-500 text-white shadow-md scale-105'
+              : 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100 hover:scale-105'
+          }`}
+        >
+          <div className="text-xl font-bold">{floorStats.cleaning}</div>
+          <div className="text-xs">Cleaning</div>
+        </button>
+        <button
+          onClick={() => onStatusFilterChange('ready')}
+          className={`rounded-lg p-2 text-center transition-all duration-200 touch-manipulation ${
+            statusFilter === 'ready'
+              ? 'bg-green-600 text-white shadow-md scale-105'
+              : 'bg-green-50 text-green-700 hover:bg-green-100 hover:scale-105'
+          }`}
+        >
+          <div className="text-xl font-bold">{floorStats.ready}</div>
+          <div className="text-xs">Ready</div>
+        </button>
+        <button
+          onClick={() => onStatusFilterChange('inspected')}
+          className={`rounded-lg p-2 text-center transition-all duration-200 touch-manipulation ${
+            statusFilter === 'inspected'
+              ? 'bg-blue-600 text-white shadow-md scale-105'
+              : 'bg-blue-50 text-blue-700 hover:bg-blue-100 hover:scale-105'
+          }`}
+        >
+          <div className="text-xl font-bold">{floorStats.inspected}</div>
+          <div className="text-xs">Inspected</div>
+        </button>
+      </div>
+
+      {(statusFilter !== 'all' || roomSearch) && (
+        <div className="flex justify-between items-center mb-4">
+          <span className="text-sm text-gray-600">Filtered results</span>
+          <button onClick={onClearFilters} className="text-sm text-blue-600 hover:text-blue-800">
+            Clear all ✕
+          </button>
+        </div>
+      )}
+
+      {/* Rooms grid */}
+      {currentFloorRooms.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {currentFloorRooms.map(room => (
+            <div
+              key={room.id}
+              onClick={() => handleCardClick(room)}
+              className={`bg-white rounded-lg shadow-md border overflow-hidden hover:shadow-lg transition cursor-pointer ${
+                selectedRoomId === room.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''
+              }`}
+            >
+              <div className="p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Room {room.roomNumber}</h3>
+                    <p className="text-xs text-gray-600">{room.roomType}</p>
+                  </div>
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${statusColors[room.status]}`}>
+                    {statusLabels[room.status]}
+                  </span>
+                </div>
+
+                {/* Last updated by */}
+                <div className="mb-3 p-2 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${roleColors[room.lastUpdatedRole] || 'bg-gray-200 text-gray-700'}`}>
+                      {getInitial(room.lastUpdatedBy)}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-xs font-medium text-gray-800">Updated by {room.lastUpdatedBy}</p>
+                      <p className="text-xs text-gray-500">{formatRelativeTime(room.lastUpdatedAt)}</p>
+                    </div>
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${roleColors[room.lastUpdatedRole] || 'bg-gray-100 text-gray-600'}`}>
+                      {room.lastUpdatedRole === 'head_housekeeping' ? 'Head Housekeeping' : room.lastUpdatedRole}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Colorful Status Buttons */}
+                <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={() => onStatusChange(room.id, 'dirty')}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all duration-200 ${
+                      room.status === 'dirty'
+                        ? 'bg-red-600 text-white shadow-md'
+                        : 'bg-red-50 text-red-700 hover:bg-red-100'
+                    }`}
+                  >
+                    Dirty
+                  </button>
+                  <button
+                    onClick={() => onStatusChange(room.id, 'cleaning')}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all duration-200 ${
+                      room.status === 'cleaning'
+                        ? 'bg-yellow-500 text-white shadow-md'
+                        : 'bg-yellow-50 text-yellow-700 hover:bg-yellow-100'
+                    }`}
+                  >
+                    Cleaning
+                  </button>
+                  <button
+                    onClick={() => onStatusChange(room.id, 'ready')}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all duration-200 ${
+                      room.status === 'ready'
+                        ? 'bg-green-600 text-white shadow-md'
+                        : 'bg-green-50 text-green-700 hover:bg-green-100'
+                    }`}
+                  >
+                    Ready
+                  </button>
+                  <button
+                    onClick={() => onStatusChange(room.id, 'inspected')}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-all duration-200 ${
+                      room.status === 'inspected'
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+                    }`}
+                  >
+                    Inspected
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12 bg-white rounded-lg border">
+          <p className="text-gray-500">No rooms match your filters.</p>
+          <button onClick={onClearFilters} className="mt-2 text-blue-600 hover:text-blue-800">
+            Clear filters
+          </button>
+        </div>
+      )}
+
+      {/* Room Detail Modal with Assignment */}
+      {selectedRoomForModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-md w-full max-h-[90vh] overflow-y-auto shadow-xl">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-semibold text-white">Room {selectedRoomForModal.roomNumber}</h3>
+                <p className="text-blue-100 text-sm">{selectedRoomForModal.roomType}</p>
+              </div>
+              <button
+                onClick={() => setSelectedRoomForModal(null)}
+                className="text-white hover:text-gray-200 text-2xl leading-none"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {/* Room details */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-gray-500">Floor:</span>
+                  <p className="font-medium text-gray-900">{selectedRoomForModal.floor}</p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Current Status:</span>
+                  <p className={`font-medium inline-block px-2 py-0.5 rounded ${statusColors[selectedRoomForModal.status]}`}>
+                    {statusLabels[selectedRoomForModal.status]}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Last Updated:</span>
+                  <p className="font-medium text-gray-900">{formatRelativeTime(selectedRoomForModal.lastStatusChange)}</p>
+                </div>
+                <div>
+                  <span className="text-gray-500">Updated By:</span>
+                  <p className="font-medium text-gray-900">{selectedRoomForModal.lastUpdatedBy}</p>
+                  <p className="text-xs text-gray-500">{selectedRoomForModal.lastUpdatedRole}</p>
+                </div>
+              </div>
+
+              <hr className="my-2" />
+
+              {/* Assign Cleaning Section */}
+              <div>
+                <h4 className="font-semibold text-gray-800 mb-2">Assign Cleaning</h4>
+                <div className="mb-3">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Select Staff</label>
+                  <select
+                    value={selectedStaffId}
+                    onChange={(e) => setSelectedStaffId(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Choose a staff member...</option>
+                    {housekeepingStaff.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.sub_role ? `(${subRoleLabels[s.sub_role]?.label})` : `(${s.role})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleAssignCleaning('stay_over')}
+                    disabled={!selectedStaffId || assigning}
+                    className="flex-1 bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {assigning ? 'Assigning...' : 'Assign Stay-Over'}
+                  </button>
+                  <button
+                    onClick={() => handleAssignCleaning('checkout')}
+                    disabled={!selectedStaffId || assigning}
+                    className="flex-1 bg-orange-600 text-white px-3 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                  >
+                    {assigning ? 'Assigning...' : 'Assign Checkout'}
+                  </button>
+                </div>
+              </div>
+
+              <hr className="my-2" />
+
+              {/* Quick status update */}
+              <div>
+                <h4 className="font-semibold text-gray-800 mb-2">Update Status</h4>
+                <div className="flex flex-wrap gap-2">
+                  {(['dirty', 'cleaning', 'ready', 'inspected'] as const).map(status => (
+                    <button
+                      key={status}
+                      onClick={() => {
+                        handleModalStatusChange(selectedRoomForModal.id, status)
+                        toast.success(`Room ${selectedRoomForModal.roomNumber} marked as ${statusLabels[status]}`)
+                      }}
+                      className={`px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 ${
+                        selectedRoomForModal.status === status
+                          ? 'bg-gray-800 text-white shadow-md'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {statusLabels[status]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-xs text-gray-400 text-center pt-2">
+                Last status change: {new Date(selectedRoomForModal.lastStatusChange).toLocaleString()}
+              </div>
+            </div>
+            <div className="border-t p-4 bg-gray-50 flex justify-end">
+              <button
+                onClick={() => setSelectedRoomForModal(null)}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

@@ -1,241 +1,345 @@
 'use client'
 
-import { Room } from '@/types'
+import { useState } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
+import { useRooms } from '@/contexts/RoomContext'
+import toast from 'react-hot-toast'
 
-interface RoomsTabProps {
-  rooms: Room[]
-  loading: boolean
-  selectedFloor: number
-  statusFilter: 'all' | 'dirty' | 'cleaning' | 'ready' | 'inspected'
-  roomSearch: string
-  selectedRoomId: string | null
-  availableFloors: number[]
-  floorStats: { total: number; dirty: number; cleaning: number; ready: number; inspected: number }
-  onFloorChange: (floor: number) => void
-  onStatusFilterChange: (filter: 'all' | 'dirty' | 'cleaning' | 'ready' | 'inspected') => void
-  onRoomSearchChange: (search: string) => void
-  onRoomSelect: (roomId: string | null) => void
-  onStatusChange: (roomId: string, newStatus: Room['status']) => void
-  onClearFilters: () => void
+interface Room {
+    id: string
+    room_number?: string
+    roomNumber?: string
+    floor?: number
+    room_type?: string
+    roomType?: string
+    status?: string
+    cleaning_status?: string
+    out_of_order?: boolean
+    out_of_order_reason?: string
 }
 
-const statusColors = {
-  dirty: 'bg-red-100 text-red-800 border-red-200',
-  cleaning: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  ready: 'bg-green-100 text-green-800 border-green-200',
-  inspected: 'bg-blue-100 text-blue-800 border-blue-200',
-}
+export default function RoomsTab() {
+    const { staff } = useAuth()
+    const { rooms, loading, updateRoomStatus, markRoomOutOfOrder, removeRoomOutOfOrder, refreshRooms } = useRooms()
+    const [selectedFloor, setSelectedFloor] = useState<number>(1)
+    const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
+    const [showRoomModal, setShowRoomModal] = useState(false)
+    const [updating, setUpdating] = useState(false)
+    const [oooReason, setOooReason] = useState('')
+    const [oooSubmitting, setOooSubmitting] = useState(false)
 
-const statusLabels = {
-  dirty: 'Dirty',
-  cleaning: 'Cleaning',
-  ready: 'Ready',
-  inspected: 'Inspected',
-}
+    const isHead = staff?.role === 'head_housekeeping' || staff?.role === 'admin' || staff?.role === 'manager'
+    const isCleaner = staff?.role === 'housekeeping'
 
-const roleColors: { [key: string]: string } = {
-  admin: 'bg-purple-100 text-purple-800',
-  manager: 'bg-indigo-100 text-indigo-800',
-  frontdesk: 'bg-cyan-100 text-cyan-800',
-  housekeeping: 'bg-emerald-100 text-emerald-800',
-  maintenance: 'bg-orange-100 text-orange-800',
-  auto: 'bg-gray-100 text-gray-600',
-}
+    // Helper to get room number (supports both snake_case and camelCase)
+    const getRoomNumber = (room: Room) => room.room_number || room.roomNumber || '?'
+    const getRoomType = (room: Room) => room.room_type || room.roomType || 'Standard'
+    const getFloor = (room: Room) => room.floor ?? 0
+    const getCleaningStatus = (room: Room) => room.cleaning_status || room.status || 'dirty'
 
-const getInitial = (name: string) => name.charAt(0).toUpperCase()
+    const floors = [...new Set(rooms.map(r => getFloor(r)))].sort((a, b) => a - b)
 
-const formatRelativeTime = (dateString: string) => {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMinutes = Math.floor((now.getTime() - date.getTime()) / 60000)
-  if (diffMinutes < 1) return 'Just now'
-  if (diffMinutes < 60) return `${diffMinutes} min ago`
-  if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)} hours ago`
-  return date.toLocaleDateString()
-}
+    // Debug: Log rooms data to see what's coming from context
+    console.log('Rooms in RoomsTab:', rooms.slice(0, 5).map(r => ({
+        room_number: getRoomNumber(r),
+        cleaning_status: r.cleaning_status,
+        status: r.status,
+        display_status: getCleaningStatus(r)
+    })))
 
-export default function RoomsTab({
-  rooms,
-  loading,
-  selectedFloor,
-  statusFilter,
-  roomSearch,
-  selectedRoomId,
-  availableFloors,
-  floorStats,
-  onFloorChange,
-  onStatusFilterChange,
-  onRoomSearchChange,
-  onRoomSelect,
-  onStatusChange,
-  onClearFilters,
-}: RoomsTabProps) {
-  // Filter rooms for current floor and search
-  const roomsByFloor = rooms.reduce((acc: { [key: number]: Room[] }, room) => {
-    const floor = room.floor || 1
-    if (!acc[floor]) acc[floor] = []
-    acc[floor].push(room)
-    return acc
-  }, {})
+    const handleStatusChange = async (roomId: string, newStatus: string) => {
+        setUpdating(true)
+        if (isCleaner && !['cleaning', 'ready'].includes(newStatus)) {
+            toast.error('Cleaners can only change to cleaning or ready')
+            setUpdating(false)
+            return
+        }
+        if (isHead && !['inspected', 'awaiting', 'dirty'].includes(newStatus)) {
+            toast.error('Head can only change to inspected, awaiting, or dirty')
+            setUpdating(false)
+            return
+        }
+        try {
+            await updateRoomStatus(roomId, newStatus)
+            toast.success(`Room status → ${newStatus.toUpperCase()}`)
+            
+            // Dispatch events to refresh all components
+            window.dispatchEvent(new CustomEvent('room-status-changed', { 
+                detail: { roomId, newStatus } 
+            }))
+            window.dispatchEvent(new CustomEvent('refresh-rooms'))
+            window.dispatchEvent(new CustomEvent('refresh-tasks'))
+            window.dispatchEvent(new CustomEvent('refresh-cleaning-board'))
+            window.dispatchEvent(new CustomEvent('refresh-notifications'))
+            
+            setShowRoomModal(false)
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Update failed')
+        } finally {
+            setUpdating(false)
+        }
+    }
 
-  let currentFloorRooms = roomsByFloor[selectedFloor] || []
-  if (statusFilter !== 'all') {
-    currentFloorRooms = currentFloorRooms.filter(room => room.status === statusFilter)
-  }
-  if (roomSearch.trim() !== '') {
-    currentFloorRooms = currentFloorRooms.filter(room =>
-      room.roomNumber.toLowerCase().includes(roomSearch.toLowerCase())
-    )
-  }
+    const handleSetOutOfOrder = async () => {
+        if (!selectedRoom || !oooReason.trim()) {
+            toast.error('Please provide a reason')
+            return
+        }
+        setOooSubmitting(true)
+        try {
+            await markRoomOutOfOrder(selectedRoom.id, oooReason)
+            toast.success(`Room ${getRoomNumber(selectedRoom)} is OUT OF ORDER`)
+            
+            window.dispatchEvent(new CustomEvent('room-outoforder-changed', { 
+                detail: { roomId: selectedRoom.id, reason: oooReason } 
+            }))
+            window.dispatchEvent(new CustomEvent('refresh-rooms'))
+            window.dispatchEvent(new CustomEvent('refresh-cleaning-board'))
+            window.dispatchEvent(new CustomEvent('refresh-notifications'))
+            
+            setShowRoomModal(false)
+            setSelectedRoom(null)
+            setOooReason('')
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed')
+        } finally {
+            setOooSubmitting(false)
+        }
+    }
 
-  if (loading) {
+    const handleRemoveOutOfOrder = async (roomId: string) => {
+        if (!confirm('Restore this room? It will be marked dirty and need cleaning.')) return
+        setUpdating(true)
+        try {
+            await removeRoomOutOfOrder(roomId)
+            toast.success('Room back in service')
+            
+            window.dispatchEvent(new CustomEvent('room-restored', { detail: { roomId } }))
+            window.dispatchEvent(new CustomEvent('refresh-rooms'))
+            window.dispatchEvent(new CustomEvent('refresh-cleaning-board'))
+            window.dispatchEvent(new CustomEvent('refresh-notifications'))
+            
+            setShowRoomModal(false)
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed')
+        } finally {
+            setUpdating(false)
+        }
+    }
+
+    // Card color based on status (includes out of order)
+    const getCardStyle = (room: Room) => {
+        if (room.out_of_order) return 'bg-gray-200 border-gray-400'
+        const status = getCleaningStatus(room)
+        switch (status) {
+            case 'dirty': return 'bg-red-100 border-red-300'
+            case 'cleaning': return 'bg-yellow-100 border-yellow-300'
+            case 'ready': return 'bg-green-100 border-green-300'
+            case 'inspected': return 'bg-blue-100 border-blue-300'
+            case 'awaiting': return 'bg-purple-100 border-purple-300'
+            default: return 'bg-white border-gray-200'
+        }
+    }
+
+    const getStatusIcon = (room: Room) => {
+        if (room.out_of_order) return '🚫'
+        const status = getCleaningStatus(room)
+        switch (status) {
+            case 'dirty': return '⚠️'
+            case 'cleaning': return '🧹'
+            case 'ready': return '✅'
+            case 'inspected': return '🔍'
+            case 'awaiting': return '👤'
+            default: return '🏨'
+        }
+    }
+
+    const getStatusLabel = (room: Room) => {
+        if (room.out_of_order) return 'OUT OF ORDER'
+        const status = getCleaningStatus(room)
+        return status.toUpperCase()
+    }
+
+    const filteredRooms = rooms.filter(r => getFloor(r) === selectedFloor)
+
+    if (loading) return <div className="flex justify-center items-center h-64 text-gray-500">Loading rooms...</div>
+
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {[1,2,3,4,5,6,7,8].map(i => <RoomCardSkeleton key={i} />)}
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      {/* Floor navigation tabs */}
-      <div className="border-b border-gray-200 overflow-x-auto mb-4">
-        <nav className="flex flex-nowrap gap-1 sm:gap-2 -mb-px min-w-max">
-          {availableFloors.map(floor => (
-            <button
-              key={floor}
-              onClick={() => onFloorChange(floor)}
-              className={`px-4 sm:px-6 py-2.5 text-sm font-medium rounded-t-lg transition touch-manipulation ${
-                selectedFloor === floor
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              Floor {floor} <span className="ml-1 text-xs">({roomsByFloor[floor]?.length || 0})</span>
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Search bar */}
-      <div className="relative mb-4">
-        <input
-          type="text"
-          placeholder="Search room number..."
-          value={roomSearch}
-          onChange={(e) => onRoomSearchChange(e.target.value)}
-          className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 text-gray-900"
-        />
-        {roomSearch && (
-          <button
-            onClick={() => onRoomSearchChange('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
-          >
-            ✕
-          </button>
-        )}
-      </div>
-
-      {/* Stats filter buttons */}
-      <div className="grid grid-cols-5 gap-2 mb-4">
-        {(['all', 'dirty', 'cleaning', 'ready', 'inspected'] as const).map(filter => (
-          <button
-            key={filter}
-            onClick={() => onStatusFilterChange(filter)}
-            className={`rounded-lg p-2 text-center transition touch-manipulation ${
-              statusFilter === filter
-                ? 'bg-gray-800 text-white ring-2 ring-gray-800'
-                : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-            }`}
-          >
-            <div className="text-xl font-bold">
-              {filter === 'all' ? floorStats.total : floorStats[filter]}
+        <div className="min-h-screen bg-gray-50 p-6">
+            {/* Header */}
+            <div className="max-w-7xl mx-auto mb-6">
+                <h1 className="text-3xl font-light text-gray-800">🏨 Rooms</h1>
+                <p className="text-sm text-gray-500 mt-1">
+                    {isCleaner ? 'Cleaner: click a room to change status (dirty → cleaning → ready)' :
+                        isHead ? 'Head: click a room to inspect, await guest, or mark out of order' :
+                            'View only'}
+                </p>
+                <button
+                    onClick={refreshRooms}
+                    className="mt-2 text-xs text-blue-600 hover:text-blue-800"
+                >
+                    ↻ Refresh
+                </button>
             </div>
-            <div className="text-xs">{filter === 'all' ? 'Total' : statusLabels[filter]}</div>
-          </button>
-        ))}
-      </div>
 
-      {(statusFilter !== 'all' || roomSearch) && (
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-sm text-gray-600">Filtered results</span>
-          <button onClick={onClearFilters} className="text-sm text-blue-600">Clear all ✕</button>
-        </div>
-      )}
-
-      {/* Rooms grid */}
-      {currentFloorRooms.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {currentFloorRooms.map(room => (
-            <div
-              key={room.id}
-              onClick={() => onRoomSelect(room.id)}
-              className={`bg-white rounded-lg shadow-md border overflow-hidden hover:shadow-lg transition cursor-pointer ${
-                selectedRoomId === room.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''
-              }`}
-            >
-              <div className="p-4">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <h3 className="text-lg font-bold">Room {room.roomNumber}</h3>
-                    <p className="text-xs text-gray-500">{room.roomType}</p>
-                  </div>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${statusColors[room.status]}`}>
-                    {statusLabels[room.status]}
-                  </span>
-                </div>
-
-                <div className="mb-3 p-2 bg-gray-50 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${roleColors[room.lastUpdatedRole] || 'bg-gray-200'}`}>
-                      {getInitial(room.lastUpdatedBy)}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-xs font-medium">Updated by {room.lastUpdatedBy}</p>
-                      <p className="text-xs text-gray-400">{formatRelativeTime(room.lastUpdatedAt)}</p>
-                    </div>
-                    <span className="text-xs px-1 py-0.5 rounded bg-gray-100">{room.lastUpdatedRole}</span>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
-                  {(['dirty', 'cleaning', 'ready', 'inspected'] as const).map(status => (
+            {/* Floor navigation */}
+            <div className="max-w-7xl mx-auto mb-6 flex flex-wrap gap-2 border-b border-gray-200 pb-2">
+                {floors.map(floor => (
                     <button
-                      key={status}
-                      onClick={() => onStatusChange(room.id, status)}
-                      className={`px-3 py-1 rounded-md text-xs font-medium transition ${
-                        room.status === status
-                          ? 'bg-gray-800 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
+                        key={floor}
+                        onClick={() => setSelectedFloor(floor)}
+                        className={`px-4 py-1.5 text-sm font-medium rounded-full transition ${selectedFloor === floor
+                                ? 'bg-blue-600 text-white shadow'
+                                : 'bg-white text-gray-600 hover:bg-gray-100'
+                            }`}
                     >
-                      {statusLabels[status]}
+                        Floor {floor}
                     </button>
-                  ))}
-                </div>
-              </div>
+                ))}
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-center py-12 bg-white rounded-lg border">
-          <p className="text-gray-500">No rooms match your filters.</p>
-          <button onClick={onClearFilters} className="mt-2 text-blue-600">Clear filters</button>
-        </div>
-      )}
-    </div>
-  )
-}
 
-// Skeleton component for loading
-function RoomCardSkeleton() {
-  return (
-    <div className="bg-white rounded-lg shadow-md border overflow-hidden animate-pulse">
-      <div className="p-4 space-y-3">
-        <div className="h-5 bg-gray-200 rounded w-3/4"></div>
-        <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-        <div className="h-10 bg-gray-200 rounded"></div>
-      </div>
-    </div>
-  )
+            {/* Card grid */}
+            <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+                {filteredRooms.map(room => (
+                    <div
+                        key={room.id}
+                        onClick={() => { setSelectedRoom(room); setShowRoomModal(true) }}
+                        className={`cursor-pointer rounded-xl border-2 shadow-sm p-4 transition hover:shadow-md hover:-translate-y-1 ${getCardStyle(room)}`}
+                    >
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <div className="text-3xl font-black text-gray-800">{getRoomNumber(room)}</div>
+                                <div className="text-sm text-gray-600 mt-0.5">{getRoomType(room)}</div>
+                                <div className="text-xs text-gray-500">Floor {getFloor(room)}</div>
+                            </div>
+                            <div className="text-3xl">{getStatusIcon(room)}</div>
+                        </div>
+                        <div className="mt-3 flex justify-between items-center">
+                            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white/70">
+                                {getStatusLabel(room)}
+                            </span>
+                            {room.out_of_order && room.out_of_order_reason && (
+                                <span className="text-xs text-red-600 truncate max-w-[120px]">⚠️ {room.out_of_order_reason}</span>
+                            )}
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            {/* Room Detail Modal */}
+            {showRoomModal && selectedRoom && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
+                        <div className={`px-6 py-4 ${selectedRoom.out_of_order ? 'bg-gray-700' : 'bg-blue-600'} text-white`}>
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-2xl font-bold">Room {getRoomNumber(selectedRoom)}</h2>
+                                <button onClick={() => setShowRoomModal(false)} className="text-white/80 hover:text-white text-2xl">&times;</button>
+                            </div>
+                            <p className="text-white/80 text-sm">{getRoomType(selectedRoom)} • Floor {getFloor(selectedRoom)}</p>
+                        </div>
+
+                        <div className="p-6 space-y-4">
+                            <div className="flex justify-between items-center border-b pb-2">
+                                <span className="font-semibold text-gray-600">Current status:</span>
+                                <span className={`px-3 py-1 rounded-full text-sm font-bold ${selectedRoom.out_of_order ? 'bg-gray-200 text-gray-800' : 'bg-blue-100 text-blue-800'
+                                    }`}>
+                                    {getStatusLabel(selectedRoom)} {getStatusIcon(selectedRoom)}
+                                </span>
+                            </div>
+
+                            {selectedRoom.out_of_order && selectedRoom.out_of_order_reason && (
+                                <div className="bg-red-50 p-3 rounded-lg border-l-4 border-red-500">
+                                    <p className="text-sm font-semibold text-red-800">Reason:</p>
+                                    <p className="text-sm text-gray-700">{selectedRoom.out_of_order_reason}</p>
+                                </div>
+                            )}
+
+                            {!selectedRoom.out_of_order ? (
+                                <>
+                                    {isCleaner && (
+                                        <div className="space-y-2">
+                                            {getCleaningStatus(selectedRoom) === 'dirty' && (
+                                                <button
+                                                    onClick={() => handleStatusChange(selectedRoom.id, 'cleaning')}
+                                                    disabled={updating}
+                                                    className="w-full bg-yellow-500 hover:bg-yellow-600 text-white py-2 rounded-lg transition"
+                                                >
+                                                    🧹 Start Cleaning
+                                                </button>
+                                            )}
+                                            {getCleaningStatus(selectedRoom) === 'cleaning' && (
+                                                <button
+                                                    onClick={() => handleStatusChange(selectedRoom.id, 'ready')}
+                                                    disabled={updating}
+                                                    className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg transition"
+                                                >
+                                                    ✅ Mark Ready
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {isHead && (
+                                        <div className="space-y-2">
+                                            {getCleaningStatus(selectedRoom) === 'ready' && (
+                                                <button
+                                                    onClick={() => handleStatusChange(selectedRoom.id, 'inspected')}
+                                                    disabled={updating}
+                                                    className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition"
+                                                >
+                                                    🔍 Inspect Room
+                                                </button>
+                                            )}
+                                            {getCleaningStatus(selectedRoom) === 'inspected' && (
+                                                <button
+                                                    onClick={() => handleStatusChange(selectedRoom.id, 'awaiting')}
+                                                    disabled={updating}
+                                                    className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-lg transition"
+                                                >
+                                                    👤 Mark Awaiting Guest
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => handleStatusChange(selectedRoom.id, 'dirty')}
+                                                disabled={updating}
+                                                className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg transition"
+                                            >
+                                                🟡 Mark Dirty (needs cleaning)
+                                            </button>
+                                            <hr className="my-2" />
+                                            <button
+                                                onClick={() => {
+                                                    const reason = prompt('Enter reason for out of order:')
+                                                    if (reason && reason.trim()) {
+                                                        setOooReason(reason)
+                                                        handleSetOutOfOrder()
+                                                    }
+                                                }}
+                                                disabled={oooSubmitting}
+                                                className="w-full bg-gray-700 hover:bg-gray-800 text-white py-2 rounded-lg transition"
+                                            >
+                                                🚫 Mark Out of Order
+                                            </button>
+                                        </div>
+                                    )}
+                                </>
+                            ) : (
+                                isHead && (
+                                    <button
+                                        onClick={() => handleRemoveOutOfOrder(selectedRoom.id)}
+                                        disabled={updating}
+                                        className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition"
+                                    >
+                                        ✅ Restore to Service
+                                    </button>
+                                )
+                            )}
+
+                            {updating && <p className="text-center text-sm text-gray-500">Updating...</p>}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
 }
