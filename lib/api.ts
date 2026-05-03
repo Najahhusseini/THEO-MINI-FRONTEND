@@ -204,7 +204,6 @@ export const ensureCheckoutRequests = async () => {
   return response.data
 }
 
-// NEW: Auto-create cleaning requests for all dirty rooms
 export const ensureDirtyRoomRequests = async () => {
   const response = await api.post('/cleaning/ensure-dirty-requests')
   return response.data
@@ -383,6 +382,101 @@ export const adjustStock = async (itemId: string, quantityBoxes: number, reason:
 export const getTransactionHistory = async (itemId: string, limit?: number) => {
   const url = limit ? `/supplies/${itemId}/history?limit=${limit}` : `/supplies/${itemId}/history`
   const response = await api.get(url)
+  return response.data
+}
+
+// ============ RESERVATION APIs ============
+
+export interface CreateReservationData {
+    guest_name: string
+    guest_email?: string
+    guest_phone?: string
+    arrival_date: string
+    departure_date: string
+    room_type: string
+    number_of_guests?: number
+    number_of_rooms?: number
+    special_requests?: string
+}
+
+export const createReservation = async (data: CreateReservationData) => {
+    const response = await api.post('/reservations', data)
+    return response.data
+}
+
+export const getReservations = async (filters?: {
+    status?: string
+    start_date?: string
+    end_date?: string
+    room_type?: string
+}) => {
+    const params = new URLSearchParams()
+    if (filters?.status) params.append('status', filters.status)
+    if (filters?.start_date) params.append('start_date', filters.start_date)
+    if (filters?.end_date) params.append('end_date', filters.end_date)
+    if (filters?.room_type) params.append('room_type', filters.room_type)
+    
+    const url = params.toString() ? `/reservations?${params.toString()}` : '/reservations'
+    const response = await api.get(url)
+    return response.data
+}
+
+export const getReservationById = async (id: string) => {
+    const response = await api.get(`/reservations/${id}`)
+    return response.data
+}
+
+export const updateReservation = async (id: string, data: Partial<CreateReservationData & { status: string }>) => {
+    const response = await api.put(`/reservations/${id}`, data)
+    return response.data
+}
+
+export const confirmReservation = async (id: string) => {
+    const response = await api.post(`/reservations/${id}/confirm`)
+    return response.data
+}
+
+export const cancelReservation = async (id: string) => {
+    const response = await api.post(`/reservations/${id}/cancel`)
+    return response.data
+}
+
+export const checkConflicts = async (data: {
+    arrival_date: string
+    departure_date: string
+    room_type: string
+    exclude_id?: string
+}) => {
+    const response = await api.post('/reservations/check-conflicts', data)
+    return response.data
+}
+
+export const getCalendarData = async (start_date: string, end_date: string) => {
+    const response = await api.get(`/reservations/calendar?start_date=${start_date}&end_date=${end_date}`)
+    return response.data
+}
+
+// ============ EMAIL INGESTION APIs ==========
+
+export const getEmails = async (status?: string) => {
+    const url = status ? `/emails?status=${status}` : '/emails'
+    const response = await api.get(url)
+    return response.data
+}
+
+export const updateEmailParsedData = async (emailId: string, parsedData: any) => {
+    const response = await api.put(`/emails/${emailId}/parsed`, parsedData)
+    return response.data
+}
+
+export const processEmail = async (emailId: string, createReservation: boolean, reservationData?: any) => {
+    const response = await api.post(`/emails/${emailId}/process`, { createReservation, reservationData })
+    return response.data
+}
+
+// ============ STAYS API (for upcoming guest info) ===========
+export const getStays = async () => {
+  const response = await api.get('/reservations/stays')
   return response.data
 }
 

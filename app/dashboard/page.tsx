@@ -21,6 +21,9 @@ import SupplyRequestsTab from '@/components/SupplyRequestsTab'
 import StaffSupplyRequest from '@/components/StaffSupplyRequest'
 import NotificationBell from '@/components/NotificationBell'
 import CleaningPerformance from '@/components/CleaningPerformance'
+import ReservationTab from '@/components/ReservationTab'
+import ReservationManagerDashboard from '@/components/ReservationManagerDashboard'
+import EmailIngestionTab from '@/components/EmailIngestionTab'  // <-- ADD THIS
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
 import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
 import { RoomProvider } from '@/contexts/RoomContext'
@@ -37,9 +40,14 @@ export default function DashboardPage() {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false)
 
+  // Redirect reservation managers to their dedicated dashboard
   useEffect(() => {
     if (!staff) {
       router.push('/login')
+      return
+    }
+    if (staff.role === 'reservation_manager') {
+      router.push('/reservation-manager')
       return
     }
     fetchRooms()
@@ -131,9 +139,15 @@ export default function DashboardPage() {
     const role = staff?.role || 'staff'
     const baseTabs = [
       { id: 'rooms', label: '🏠 Rooms', icon: '🏠', roles: ['admin', 'manager', 'frontdesk', 'housekeeping', 'head_housekeeping'] },
+      { id: 'reservations', label: '📅 Reservations', icon: '📅', roles: ['admin', 'manager', 'frontdesk'] },
       { id: 'shifts', label: '⏱️ My Shifts', icon: '⏱️', roles: ['admin', 'manager', 'frontdesk', 'housekeeping', 'maintenance', 'head_housekeeping'] },
       { id: 'tasks', label: '✅ Tasks', icon: '✅', roles: ['admin', 'manager', 'frontdesk', 'housekeeping', 'maintenance', 'head_housekeeping'] },
     ]
+    
+    // Email Ingestion tab for admin/manager/reservation_manager
+    if (['admin', 'manager', 'reservation_manager'].includes(role)) {
+      baseTabs.push({ id: 'email-ingestion', label: '📧 Email Inbox', icon: '📧', roles: ['admin', 'manager', 'reservation_manager'] })
+    }
     
     if (role === 'admin' || role === 'manager' || role === 'head_housekeeping') {
       baseTabs.push({ id: 'cleaning', label: '🧼 Cleaning Board', icon: '🧹', roles: ['admin', 'manager', 'head_housekeeping'] })
@@ -166,6 +180,7 @@ export default function DashboardPage() {
     if (role === 'admin' || role === 'manager') {
       baseTabs.push({ id: 'staff', label: '👥 Staff', icon: '👥', roles: ['admin', 'manager'] })
       baseTabs.push({ id: 'reports', label: '📊 Reports', icon: '📊', roles: ['admin', 'manager'] })
+      baseTabs.push({ id: 'reservations-admin', label: '📅 Reservations (Admin)', icon: '📅', roles: ['admin', 'manager'] })
     }
     
     return baseTabs
@@ -253,6 +268,18 @@ export default function DashboardPage() {
                 onClearFilters={clearFilters}
               />
             </div>
+          )}
+
+          {activeTab === 'reservations' && (
+            <ReservationTab />
+          )}
+
+          {activeTab === 'reservations-admin' && (
+            <ReservationManagerDashboard standalone={false} />
+          )}
+
+          {activeTab === 'email-ingestion' && (
+            <EmailIngestionTab />
           )}
 
           {activeTab === 'shifts' && (
