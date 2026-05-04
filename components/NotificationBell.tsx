@@ -19,8 +19,49 @@ export default function NotificationBell() {
     const [unreadCount, setUnreadCount] = useState(0)
     const [isOpen, setIsOpen] = useState(false)
     const [loading, setLoading] = useState(false)
-    const dropdownRef = useRef<HTMLDivElement>(null)
 
+    const dropdownRef = useRef<HTMLDivElement>(null)
+    const bellRef = useRef<HTMLButtonElement>(null)
+
+    // ── Fixed dropdown position – safe on all screen sizes ──
+    const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({})
+
+    const updateDropdownPosition = () => {
+        if (bellRef.current) {
+            const bellRect = bellRef.current.getBoundingClientRect()
+            const dropdownWidth = 340   // same as w-80 + padding
+            let left = bellRect.right - dropdownWidth
+
+            // don’t let it go off‑screen to the left or right
+            if (left < 8) left = 8
+            if (left + dropdownWidth > window.innerWidth - 8) {
+                left = window.innerWidth - dropdownWidth - 8
+            }
+
+            setDropdownStyle({
+                position: 'fixed',
+                top: bellRect.bottom + 6,
+                left: left,
+                width: dropdownWidth,
+                maxHeight: '70vh',
+                zIndex: 9999,
+            })
+        }
+    }
+
+    useEffect(() => {
+        if (isOpen) {
+            updateDropdownPosition()
+            window.addEventListener('scroll', updateDropdownPosition, true)
+            window.addEventListener('resize', updateDropdownPosition)
+        }
+        return () => {
+            window.removeEventListener('scroll', updateDropdownPosition, true)
+            window.removeEventListener('resize', updateDropdownPosition)
+        }
+    }, [isOpen])
+
+    // ── Fetch notifications ──
     const fetchNotifications = async () => {
         if (!staff) return
         setLoading(true)
@@ -34,9 +75,10 @@ export default function NotificationBell() {
             })
             if (response.ok) {
                 const data = await response.json()
-                // Handle both response formats (notifications or items)
                 const notificationList = data.notifications || data.items || []
-                const unread = data.unreadCount !== undefined ? data.unreadCount : notificationList.filter((n: Notification) => !n.is_read).length
+                const unread = data.unreadCount !== undefined
+                    ? data.unreadCount
+                    : notificationList.filter((n: Notification) => !n.is_read).length
                 setNotifications(notificationList)
                 setUnreadCount(unread)
             }
@@ -57,9 +99,8 @@ export default function NotificationBell() {
                     'Content-Type': 'application/json'
                 }
             })
-            
             if (response.ok) {
-                setNotifications(prev => 
+                setNotifications(prev =>
                     prev.map(n => n.id === id ? { ...n, is_read: true } : n)
                 )
                 setUnreadCount(prev => Math.max(0, prev - 1))
@@ -79,9 +120,8 @@ export default function NotificationBell() {
                     'Content-Type': 'application/json'
                 }
             })
-            
             if (response.ok) {
-                setNotifications(prev => 
+                setNotifications(prev =>
                     prev.map(n => ({ ...n, is_read: true }))
                 )
                 setUnreadCount(0)
@@ -92,7 +132,7 @@ export default function NotificationBell() {
     }
 
     const getNotificationIcon = (type: string) => {
-        switch(type) {
+        switch (type) {
             case 'task': return '🧹'
             case 'supply': return '📦'
             case 'cleaning': return '✨'
@@ -103,6 +143,8 @@ export default function NotificationBell() {
             case 'room_completed': return '✅'
             case 'room_ready': return '🏨'
             case 'room_out_of_order': return '🚫'
+            case 'guest_moved': return '🔄'
+            case 'new_reservation': return '📧'
             case 'alert': return '⚠️'
             default: return '🔔'
         }
@@ -111,14 +153,14 @@ export default function NotificationBell() {
     useEffect(() => {
         fetchNotifications()
         const interval = setInterval(fetchNotifications, 30000)
-        
+
         const handleRefresh = () => {
             fetchNotifications()
         }
         window.addEventListener('refresh-notifications', handleRefresh)
         window.addEventListener('room-assigned', handleRefresh)
         window.addEventListener('room-status-changed', handleRefresh)
-        
+
         return () => {
             clearInterval(interval)
             window.removeEventListener('refresh-notifications', handleRefresh)
@@ -127,9 +169,15 @@ export default function NotificationBell() {
         }
     }, [staff])
 
+    // Close on outside click
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+            if (
+                dropdownRef.current &&
+                !dropdownRef.current.contains(event.target as Node) &&
+                bellRef.current &&
+                !bellRef.current.contains(event.target as Node)
+            ) {
                 setIsOpen(false)
             }
         }
@@ -140,6 +188,7 @@ export default function NotificationBell() {
     return (
         <div className="relative" ref={dropdownRef}>
             <button
+                ref={bellRef}
                 onClick={() => setIsOpen(!isOpen)}
                 className="relative p-2 rounded-full hover:bg-gray-100 transition focus:outline-none"
             >
@@ -152,7 +201,7 @@ export default function NotificationBell() {
             </button>
 
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border z-50 overflow-hidden">
+                <div style={dropdownStyle} className="bg-white rounded-lg shadow-xl border overflow-hidden">
                     <div className="p-3 border-b bg-gray-50 flex justify-between items-center">
                         <h3 className="font-semibold text-gray-800">Notifications</h3>
                         {unreadCount > 0 && (
@@ -164,7 +213,7 @@ export default function NotificationBell() {
                             </button>
                         )}
                     </div>
-                    <div className="max-h-96 overflow-y-auto">
+                    <div className="overflow-y-auto" style={{ maxHeight: 'calc(70vh - 40px)' }}>
                         {loading && notifications.length === 0 ? (
                             <div className="text-center py-8 text-gray-500">
                                 <div className="animate-pulse">Loading...</div>

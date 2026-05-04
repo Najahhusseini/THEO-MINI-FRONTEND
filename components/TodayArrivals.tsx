@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { getReservations, confirmReservation } from '@/lib/api'
+import { getReservations, confirmReservation, checkInStay } from '@/lib/api'
 import api from '@/lib/api'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -18,22 +18,29 @@ interface Reservation {
   status: string
 }
 
+interface AssignedRoom {
+  room_number: string
+  stay_id: string
+  checked_in: boolean
+}
+
 export default function TodayArrivals() {
   const { staff } = useAuth()
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [loading, setLoading] = useState(true)
-  const [assignedMap, setAssignedMap] = useState<Record<string, string>>({})
+  const [assignedMap, setAssignedMap] = useState<Record<string, AssignedRoom>>({})
   const [showAssignModal, setShowAssignModal] = useState(false)
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null)
   const [availableRooms, setAvailableRooms] = useState<any[]>([])
   const [selectedRoomNumber, setSelectedRoomNumber] = useState('')
   const [assigning, setAssigning] = useState(false)
 
-  // Filtering state
   const [filterRoomType, setFilterRoomType] = useState('')
   const [filterFloor, setFilterFloor] = useState('')
 
   const todayStr = format(new Date(), 'yyyy-MM-dd')
+
+  const canCheckIn = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'reservation_manager' || staff?.role === 'frontdesk'
 
   const loadData = async () => {
     try {
@@ -43,10 +50,14 @@ export default function TodayArrivals() {
 
       const staysRes = await api.get('/reservations/stays')
       const stays = staysRes.data
-      const map: Record<string, string> = {}
+      const map: Record<string, AssignedRoom> = {}
       for (const stay of stays) {
         if (stay.reservation_id) {
-          map[stay.reservation_id] = stay.room_number
+          map[stay.reservation_id] = {
+            room_number: stay.room_number,
+            stay_id: stay.id,
+            checked_in: stay.status === 'checked_in'
+          }
         }
       }
       setAssignedMap(map)
@@ -59,13 +70,21 @@ export default function TodayArrivals() {
 
   useEffect(() => {
     loadData()
+    const handleRefresh = () => loadData()
+    window.addEventListener('reservation-confirmed', handleRefresh)
+    window.addEventListener('reservation-cancelled', handleRefresh)
+    window.addEventListener('reservation-updated', handleRefresh)
+    return () => {
+      window.removeEventListener('reservation-confirmed', handleRefresh)
+      window.removeEventListener('reservation-cancelled', handleRefresh)
+      window.removeEventListener('reservation-updated', handleRefresh)
+    }
   }, [])
 
   const fetchAvailableRooms = async (arrival: string, departure: string) => {
     try {
       const res = await api.get('/rooms/available', { params: { arrival, departure } })
       setAvailableRooms(res.data)
-      // Reset filters when fetching new rooms
       setFilterRoomType('')
       setFilterFloor('')
       setSelectedRoomNumber('')
@@ -93,9 +112,9 @@ export default function TodayArrivals() {
         roomNumber: selectedRoomNumber,
       })
       toast.success(`Room ${selectedRoomNumber} assigned to ${selectedReservation.guest_name}`)
-      setAssignedMap(prev => ({ ...prev, [selectedReservation.id]: selectedRoomNumber }))
       setShowAssignModal(false)
       setSelectedRoomNumber('')
+      loadData()
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Assignment failed')
     } finally {
@@ -103,14 +122,25 @@ export default function TodayArrivals() {
     }
   }
 
-  // Filter available rooms by type and floor
+  // Check‑in handler
+  const handleCheckIn = async (reservationId: string) => {
+    const assigned = assignedMap[reservationId]
+    if (!assigned?.stay_id) return
+    try {
+      await checkInStay(assigned.stay_id)
+      toast.success('Guest checked in!')
+      loadData()
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Check‑in failed')
+    }
+  }
+
   const filteredRooms = availableRooms.filter(room => {
     if (filterRoomType && room.room_type !== filterRoomType) return false
     if (filterFloor && room.floor !== parseInt(filterFloor)) return false
     return true
   })
 
-  // Derive unique room types and floors from available rooms
   const roomTypes = [...new Set(availableRooms.map(r => r.room_type).filter(Boolean))].sort()
   const floors = [...new Set(availableRooms.map(r => r.floor).filter(Boolean))].sort((a: number, b: number) => a - b)
 
@@ -136,7 +166,9 @@ export default function TodayArrivals() {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {reservations.map(res => {
-              const assignedRoom = assignedMap[res.id]
+              const assigned = assignedMap[res.id]
+              const isCheckedIn = assigned?.checked_in
+
               return (
                 <tr key={res.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -149,15 +181,27 @@ export default function TodayArrivals() {
                     {format(parseISO(res.arrival_date), 'MMM d')} – {format(parseISO(res.departure_date), 'MMM d')}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    {assignedRoom ? (
-                      <span className="text-sm text-green-700 font-medium">{assignedRoom}</span>
+                    {assigned ? (
+                      <span className="text-sm text-green-700 font-medium">{assigned.room_number}</span>
                     ) : (
                       <span className="text-sm text-gray-400">—</span>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
-                    {assignedRoom ? (
-                      <span className="text-xs text-gray-500">Assigned</span>
+                    {assigned && isCheckedIn ? (
+                      <span className="text-xs text-green-600 font-medium">Checked In ✅</span>
+                    ) : assigned ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-xs text-gray-500">Assigned</span>
+                        {canCheckIn && (
+                          <button
+                            onClick={() => handleCheckIn(res.id)}
+                            className="bg-green-600 text-white px-2 py-1 rounded text-xs hover:bg-green-700"
+                          >
+                            Check In
+                          </button>
+                        )}
+                      </div>
                     ) : (
                       <button
                         onClick={() => openAssignModal(res)}
@@ -174,7 +218,7 @@ export default function TodayArrivals() {
         </table>
       )}
 
-      {/* Assign Room Modal with Filters */}
+      {/* Assign Room Modal with Filters (unchanged) */}
       {showAssignModal && selectedReservation && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
@@ -187,76 +231,35 @@ export default function TodayArrivals() {
                 {format(parseISO(selectedReservation.departure_date), 'MMM d')}
               </p>
 
-              {/* Filters */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Room Type</label>
-                  <select
-                    value={filterRoomType}
-                    onChange={(e) => {
-                      setFilterRoomType(e.target.value)
-                      setSelectedRoomNumber('') // reset selection
-                    }}
-                    className="w-full p-2 border rounded"
-                  >
+                  <select value={filterRoomType} onChange={(e) => { setFilterRoomType(e.target.value); setSelectedRoomNumber('') }} className="w-full p-2 border rounded">
                     <option value="">All Types</option>
-                    {roomTypes.map(type => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
+                    {roomTypes.map(type => (<option key={type} value={type}>{type}</option>))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Floor</label>
-                  <select
-                    value={filterFloor}
-                    onChange={(e) => {
-                      setFilterFloor(e.target.value)
-                      setSelectedRoomNumber('') // reset selection
-                    }}
-                    className="w-full p-2 border rounded"
-                  >
+                  <select value={filterFloor} onChange={(e) => { setFilterFloor(e.target.value); setSelectedRoomNumber('') }} className="w-full p-2 border rounded">
                     <option value="">All Floors</option>
-                    {floors.map(floor => (
-                      <option key={floor} value={floor}>Floor {floor}</option>
-                    ))}
+                    {floors.map(floor => (<option key={floor} value={floor}>Floor {floor}</option>))}
                   </select>
                 </div>
               </div>
 
-              {/* Room selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Select Room</label>
-                <select
-                  value={selectedRoomNumber}
-                  onChange={(e) => setSelectedRoomNumber(e.target.value)}
-                  className="w-full p-2 border rounded"
-                >
+                <select value={selectedRoomNumber} onChange={(e) => setSelectedRoomNumber(e.target.value)} className="w-full p-2 border rounded">
                   <option value="">-- Choose a room --</option>
-                  {filteredRooms.map((room: any) => (
-                    <option key={room.room_number} value={room.room_number}>
-                      {room.room_number} – {room.room_type} (Floor {room.floor})
-                    </option>
-                  ))}
+                  {filteredRooms.map((room: any) => (<option key={room.room_number} value={room.room_number}>{room.room_number} – {room.room_type} (Floor {room.floor})</option>))}
                 </select>
-                {filteredRooms.length === 0 && (
-                  <p className="text-xs text-gray-500 mt-1">No rooms match the selected filters.</p>
-                )}
+                {filteredRooms.length === 0 && (<p className="text-xs text-gray-500 mt-1">No rooms match the selected filters.</p>)}
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button
-                  onClick={() => setShowAssignModal(false)}
-                  className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAssign}
-                  disabled={assigning || !selectedRoomNumber}
-                  className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {assigning ? 'Assigning...' : 'Assign Room'}
-                </button>
+                <button onClick={() => setShowAssignModal(false)} className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button onClick={handleAssign} disabled={assigning || !selectedRoomNumber} className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">{assigning ? 'Assigning...' : 'Assign Room'}</button>
               </div>
             </div>
           </div>

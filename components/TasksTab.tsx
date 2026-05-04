@@ -10,9 +10,11 @@ import {
     updateRoomCleaningStatus,
     markRoomAwaitingGuest,
     getHousekeepingStaff,
-    reassignRoom
+    reassignRoom,
+    getStays
 } from '@/lib/api'
 import toast from 'react-hot-toast'
+import { format } from 'date-fns'
 
 interface CleaningTask {
     id: string
@@ -44,6 +46,13 @@ interface Staff {
     sub_role?: string
 }
 
+type OccupancyInfo = {
+    status: 'occupied' | 'reserved' | 'vacant' | 'arriving_today'
+    guest_name?: string
+    arrival_date?: string
+    departure_date?: string
+}
+
 export default function TasksTab() {
     const { staff } = useAuth()
     const [cleaningTasks, setCleaningTasks] = useState<CleaningTask[]>([])
@@ -56,6 +65,7 @@ export default function TasksTab() {
     const [reassignRoomId, setReassignRoomId] = useState<string | null>(null)
     const [reassignStaffId, setReassignStaffId] = useState('')
     const [reassigning, setReassigning] = useState(false)
+    const [occupancyMap, setOccupancyMap] = useState<Record<string, OccupancyInfo>>({})
 
     const isHead = staff?.role === 'head_housekeeping'
     const isCleaningStaff = staff?.role === 'housekeeping'
@@ -93,7 +103,7 @@ export default function TasksTab() {
             setCleaningTasks(cleaning)
 
             const inspected = rooms.filter(room => 
-                room.cleaning_status === 'ready' || room.cleaning_status === 'inspected'
+                room.cleaning_status === 'ready' || room.cleaning_status === 'inspected' || room.cleaning_status === 'awaiting'
             ).map(room => ({
                 room_id: room.id,
                 room_number: room.room_number,
@@ -104,6 +114,31 @@ export default function TasksTab() {
                 last_cleaning_update: room.last_cleaning_update,
             }))
             setInspectionTasks(inspected)
+
+            const stays = await getStays()
+            const today = format(new Date(), 'yyyy-MM-dd')
+            const occMap: Record<string, OccupancyInfo> = {}
+            for (const stay of stays) {
+                const num = stay.room_number
+                const arr = stay.arrival_date.split('T')[0]
+                const dep = stay.departure_date.split('T')[0]
+                if (arr <= today && dep >= today && stay.status !== 'checked_out') {
+                    if (stay.status === 'checked_in')
+                        occMap[num] = { status: 'occupied', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep }
+                    else if (arr === today)
+                        occMap[num] = { status: 'arriving_today', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep }
+                    else
+                        occMap[num] = { status: 'occupied', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep }
+                } else if (arr > today && !occMap[num]) {
+                    occMap[num] = { status: 'reserved', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep }
+                }
+            }
+            for (const room of rooms) {
+                const num = room.room_number
+                if (!occMap[num]) occMap[num] = { status: 'vacant' }
+            }
+            setOccupancyMap(occMap)
+
         } catch (error) {
             console.error('Failed to load tasks:', error)
             toast.error('Failed to load tasks')
@@ -127,6 +162,29 @@ export default function TasksTab() {
             window.removeEventListener('refresh-rooms', handleRefresh)
         }
     }, [loadData, loadStaff])
+
+    // ✅ NEW: Auto‑await any room that is "inspected" but has a guest arriving today
+    useEffect(() => {
+        if (!isHead) return
+        const fixInspectedRooms = async () => {
+            let changed = false
+            for (const room of inspectionTasks) {
+                if (room.cleaning_status !== 'inspected') continue
+                const occ = occupancyMap[room.room_number]
+                if (occ && occ.status === 'arriving_today') {
+                    try {
+                        await markRoomAwaitingGuest(room.room_id)
+                        console.log(`Auto‑awaited Room ${room.room_number}`)
+                        changed = true
+                    } catch (err) {
+                        console.error('Failed to auto‑await', err)
+                    }
+                }
+            }
+            if (changed) loadData()
+        }
+        fixInspectedRooms()
+    }, [inspectionTasks, occupancyMap, isHead, loadData])
 
     const handleAcceptTask = async (requestId: string, roomId: string) => {
         setActionLoading(requestId)
@@ -177,11 +235,19 @@ export default function TasksTab() {
         }
     }
 
-    const handleInspect = async (roomId: string) => {
+    const handleInspect = async (roomId: string, roomNumber: string) => {
         setActionLoading(roomId)
         try {
             await updateRoomCleaningStatus(roomId, 'inspected')
             toast.success('Room marked as inspected')
+
+            // Auto‑await
+            const occ = occupancyMap[roomNumber]
+            if (occ && occ.status === 'arriving_today') {
+                await markRoomAwaitingGuest(roomId)
+                toast.success('Guest arriving today – room set to awaiting')
+            }
+
             await loadData()
             window.dispatchEvent(new CustomEvent('refresh-rooms'))
             window.dispatchEvent(new CustomEvent('refresh-cleaning-board'))
@@ -189,23 +255,6 @@ export default function TasksTab() {
             window.dispatchEvent(new CustomEvent('refresh-notifications'))
         } catch (err: any) {
             toast.error(err.response?.data?.error || 'Failed to inspect')
-        } finally {
-            setActionLoading(null)
-        }
-    }
-
-    const handleMarkAwaiting = async (roomId: string) => {
-        setActionLoading(roomId)
-        try {
-            await markRoomAwaitingGuest(roomId)
-            toast.success('Room marked as awaiting new guest')
-            await loadData()
-            window.dispatchEvent(new CustomEvent('refresh-rooms'))
-            window.dispatchEvent(new CustomEvent('refresh-cleaning-board'))
-            window.dispatchEvent(new CustomEvent('refresh-daily-stats'))
-            window.dispatchEvent(new CustomEvent('refresh-notifications'))
-        } catch (err: any) {
-            toast.error(err.response?.data?.error || 'Failed to mark as awaiting')
         } finally {
             setActionLoading(null)
         }
@@ -245,6 +294,15 @@ export default function TasksTab() {
             case 'inspected': return 'bg-blue-100 text-blue-800'
             case 'awaiting': return 'bg-purple-100 text-purple-800'
             default: return 'bg-gray-100'
+        }
+    }
+
+    const getOccupancyBadge = (info: OccupancyInfo) => {
+        switch (info.status) {
+            case 'arriving_today': return <span className="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-800 font-medium">Arriving Today</span>
+            case 'occupied': return <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-800 font-medium">Occupied</span>
+            case 'reserved': return <span className="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-800 font-medium">Reserved</span>
+            default: return <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600 font-medium">Vacant</span>
         }
     }
 
@@ -337,8 +395,8 @@ export default function TasksTab() {
                             <thead className="bg-gray-50">
                                 <tr>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500">Room</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500">Guest</th>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500">Current Status</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500">Occupancy</th>
+                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500">Cleaning Status</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500">Assigned To</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500">Last Update</th>
                                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500">Actions</th>
@@ -353,7 +411,7 @@ export default function TasksTab() {
                                     inspectionTasks.map(room => (
                                         <tr key={room.room_id} className="hover:bg-gray-50">
                                             <td className="px-6 py-4 whitespace-nowrap font-medium">Room {room.room_number}</td>
-                                            <td className="px-6 py-4">{room.guest_name}</td>
+                                            <td className="px-6 py-4">{getOccupancyBadge(occupancyMap[room.room_number] || { status: 'vacant' })}</td>
                                             <td className="px-6 py-4">
                                                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCleaningStatusBadge(room.cleaning_status)}`}>
                                                     {room.cleaning_status.toUpperCase()}
@@ -363,13 +421,8 @@ export default function TasksTab() {
                                             <td className="px-6 py-4 text-sm">{room.last_cleaning_update ? new Date(room.last_cleaning_update).toLocaleString() : '—'}</td>
                                             <td className="px-6 py-4 space-x-2">
                                                 {room.cleaning_status === 'ready' && (
-                                                    <button onClick={() => handleInspect(room.room_id)} disabled={actionLoading === room.room_id} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm hover:bg-indigo-700 disabled:opacity-50">
+                                                    <button onClick={() => handleInspect(room.room_id, room.room_number)} disabled={actionLoading === room.room_id} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm hover:bg-indigo-700 disabled:opacity-50">
                                                         Inspect
-                                                    </button>
-                                                )}
-                                                {room.cleaning_status === 'inspected' && (
-                                                    <button onClick={() => handleMarkAwaiting(room.room_id)} disabled={actionLoading === room.room_id} className="bg-purple-600 text-white px-3 py-1 rounded text-sm hover:bg-purple-700 disabled:opacity-50">
-                                                        Mark as Awaiting Guest
                                                     </button>
                                                 )}
                                                 {room.assigned_cleaner_id && (

@@ -23,7 +23,9 @@ import NotificationBell from '@/components/NotificationBell'
 import CleaningPerformance from '@/components/CleaningPerformance'
 import ReservationTab from '@/components/ReservationTab'
 import ReservationManagerDashboard from '@/components/ReservationManagerDashboard'
-import EmailIngestionTab from '@/components/EmailIngestionTab'  // <-- ADD THIS
+import EmailIngestionTab from '@/components/EmailIngestionTab'
+import PriorityCleaningList from '@/components/PriorityCleaningList'   // ✅ NEW
+
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
 import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
 import { RoomProvider } from '@/contexts/RoomContext'
@@ -153,6 +155,11 @@ export default function DashboardPage() {
       baseTabs.push({ id: 'cleaning', label: '🧼 Cleaning Board', icon: '🧹', roles: ['admin', 'manager', 'head_housekeeping'] })
     } else if (role === 'housekeeping') {
       baseTabs.push({ id: 'my-rooms', label: '🧹 My Rooms', icon: '🧹', roles: ['housekeeping'] })
+    }
+
+    // ✅ NEW: Priority Cleaning tab for housekeeping roles
+    if (['housekeeping', 'head_housekeeping', 'admin', 'manager'].includes(role)) {
+      baseTabs.push({ id: 'priority-cleaning', label: '🧹 Priority Cleaning', icon: '🧹', roles: ['housekeeping', 'head_housekeeping', 'admin', 'manager'] })
     }
     
     if (role === 'admin' || role === 'manager' || role === 'head_housekeeping') {
@@ -304,6 +311,11 @@ export default function DashboardPage() {
 
           {activeTab === 'my-rooms' && (
             <StaffMyRooms />
+          )}
+
+          {/* ✅ NEW: Priority Cleaning List tab */}
+          {activeTab === 'priority-cleaning' && (
+            <PriorityCleaningList />
           )}
 
           {activeTab === 'tasks' && (

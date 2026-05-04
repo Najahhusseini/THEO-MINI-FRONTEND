@@ -474,9 +474,20 @@ export const processEmail = async (emailId: string, createReservation: boolean, 
     return response.data
 }
 
-// ============ STAYS API (for upcoming guest info) ===========
+// ============ STAYS APIs ===========
 export const getStays = async () => {
   const response = await api.get('/reservations/stays')
+  return response.data
+}
+
+export const checkInStay = async (stayId: string) => {
+  const response = await api.post(`/reservations/stays/${stayId}/check-in`)
+  return response.data
+}
+
+// ✨ NEW: Move a stay to a different room (for guest reassignment)
+export const moveStayToRoom = async (stayId: string, roomNumber: string) => {
+  const response = await api.patch(`/reservations/stays/${stayId}/move-room`, { roomNumber })
   return response.data
 }
 

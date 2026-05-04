@@ -5,7 +5,16 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useRooms } from '@/contexts/RoomContext'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
-import { getStays, getReservations, getHousekeepingStaff, reassignRoom } from '@/lib/api'
+import {
+  getStays,
+  getReservations,
+  getHousekeepingStaff,
+  reassignRoom,
+  checkInStay,
+  moveStayToRoom,
+  setRoomOutOfOrder
+} from '@/lib/api'
+import api from '@/lib/api'
 
 interface Room {
     id: string
@@ -18,19 +27,15 @@ interface Room {
     cleaning_status?: string
     out_of_order?: boolean
     out_of_order_reason?: string
-    assigned_cleaner_id?: string   // comes from cleaning API
+    assigned_cleaner_id?: string
 }
 
 type OccupancyInfo = {
-    status: 'occupied' | 'reserved' | 'vacant'
+    status: 'occupied' | 'reserved' | 'vacant' | 'arriving_today'
     guest_name?: string
     arrival_date?: string
     departure_date?: string
-}
-
-interface StaffMember {
-    id: string
-    name: string
+    stay_id?: string
 }
 
 export default function RoomsTab() {
@@ -46,14 +51,22 @@ export default function RoomsTab() {
     const [occupancyMap, setOccupancyMap] = useState<Record<string, OccupancyInfo>>({})
     const [specialRequests, setSpecialRequests] = useState<Record<string, string>>({})
 
-    // Reassign state
-    const [staffMap, setStaffMap] = useState<Record<string, string>>({})   // id → name
+    const [staffMap, setStaffMap] = useState<Record<string, string>>({})
     const [showReassignModal, setShowReassignModal] = useState(false)
     const [selectedStaffId, setSelectedStaffId] = useState('')
     const [reassigning, setReassigning] = useState(false)
 
+    const [showReassignGuestModal, setShowReassignGuestModal] = useState(false)
+    const [availableNewRooms, setAvailableNewRooms] = useState<any[]>([])
+    const [selectedNewRoom, setSelectedNewRoom] = useState('')
+    const [markOooChecked, setMarkOooChecked] = useState(false)
+    const [reassignGuestSubmitting, setReassignGuestSubmitting] = useState(false)
+    const [filterRoomType, setFilterRoomType] = useState('')
+    const [filterFloor, setFilterFloor] = useState('')
+
     const isHead = staff?.role === 'head_housekeeping' || staff?.role === 'admin' || staff?.role === 'manager'
     const isCleaner = staff?.role === 'housekeeping'
+    const canCheckIn = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'reservation_manager' || staff?.role === 'frontdesk'
 
     const getRoomNumber = (room: Room) => room.room_number || room.roomNumber || '?'
     const getRoomType = (room: Room) => room.room_type || room.roomType || 'Standard'
@@ -62,7 +75,6 @@ export default function RoomsTab() {
 
     const floors = [...new Set(rooms.map(r => getFloor(r)))].sort((a, b) => a - b)
 
-    // Fetch staff name mapping (head only)
     useEffect(() => {
         if (!isHead) return
         getHousekeepingStaff()
@@ -74,7 +86,6 @@ export default function RoomsTab() {
             .catch(console.error)
     }, [isHead])
 
-    // Occupancy & special requests (unchanged)
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -89,10 +100,14 @@ export default function RoomsTab() {
                     const arr = stay.arrival_date.split('T')[0]
                     const dep = stay.departure_date.split('T')[0]
                     if (arr <= today && dep >= today && stay.status !== 'checked_out') {
-                        occMap[num] = { status: 'occupied', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep }
-                    } else if (arr > today && !occMap[num]) {
-                        occMap[num] = { status: 'reserved', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep }
-                    }
+                        if (stay.status === 'checked_in')
+                            occMap[num] = { status: 'occupied', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep, stay_id: stay.id }
+                        else if (arr === today)
+                            occMap[num] = { status: 'arriving_today', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep, stay_id: stay.id }
+                        else
+                            occMap[num] = { status: 'occupied', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep, stay_id: stay.id }
+                    } else if (arr > today && !occMap[num])
+                        occMap[num] = { status: 'reserved', guest_name: stay.guest_name, arrival_date: arr, departure_date: dep, stay_id: stay.id }
                 }
                 for (const room of rooms) {
                     const num = getRoomNumber(room)
@@ -114,7 +129,6 @@ export default function RoomsTab() {
         if (rooms.length > 0) fetchData()
     }, [rooms])
 
-    // Existing handlers (unchanged)
     const handleStatusChange = async (roomId: string, newStatus: string) => {
         setUpdating(true)
         if (isCleaner && !['cleaning', 'ready'].includes(newStatus)) {
@@ -130,6 +144,17 @@ export default function RoomsTab() {
         try {
             await updateRoomStatus(roomId, newStatus)
             toast.success(`Room status → ${newStatus.toUpperCase()}`)
+
+            // 🏨 AUTO AWAIT: if inspecting and there's a guest arriving today
+            if (newStatus === 'inspected' && selectedRoom) {
+                const roomNum = getRoomNumber(selectedRoom)
+                const occ = occupancyMap[roomNum]
+                if (occ && occ.status === 'arriving_today') {
+                    await updateRoomStatus(roomId, 'awaiting')
+                    toast.success('Guest arriving today – room set to awaiting')
+                }
+            }
+
             window.dispatchEvent(new CustomEvent('room-status-changed', { detail: { roomId, newStatus } }))
             window.dispatchEvent(new CustomEvent('refresh-rooms'))
             window.dispatchEvent(new CustomEvent('refresh-tasks'))
@@ -184,7 +209,6 @@ export default function RoomsTab() {
         }
     }
 
-    // Reassign handler
     const handleReassign = async () => {
         if (!selectedRoom || !selectedStaffId) return
         setReassigning(true)
@@ -202,6 +226,79 @@ export default function RoomsTab() {
             setReassigning(false)
         }
     }
+
+    const handleCheckIn = async () => {
+        const occ = selectedRoom ? occupancyMap[getRoomNumber(selectedRoom)] : null
+        if (!occ?.stay_id) return
+        try {
+            await checkInStay(occ.stay_id)
+            toast.success(`${occ.guest_name} checked in!`)
+            setOccupancyMap(prev => {
+                const updated = { ...prev }
+                const num = getRoomNumber(selectedRoom!)
+                if (updated[num]) {
+                    updated[num] = { ...updated[num], status: 'occupied' }
+                }
+                return updated
+            })
+            setShowRoomModal(false)
+            window.dispatchEvent(new CustomEvent('refresh-rooms'))
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Check‑in failed')
+        }
+    }
+
+    const handleReassignGuest = async () => {
+        const occ = selectedRoom ? occupancyMap[getRoomNumber(selectedRoom)] : null
+        if (!occ?.stay_id || !selectedNewRoom) return
+        setReassignGuestSubmitting(true)
+        try {
+            await moveStayToRoom(occ.stay_id, selectedNewRoom)
+            toast.success(`Guest moved to Room ${selectedNewRoom}`)
+            if (markOooChecked) {
+                await setRoomOutOfOrder(selectedRoom!.id, 'Reassignment – room issue')
+                toast.success(`Room ${getRoomNumber(selectedRoom!)} marked Out of Order`)
+                window.dispatchEvent(new CustomEvent('refresh-rooms'))
+                window.dispatchEvent(new CustomEvent('refresh-cleaning-board'))
+            }
+            setShowReassignGuestModal(false)
+            setShowRoomModal(false)
+            refreshRooms()
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Reassign failed')
+        } finally {
+            setReassignGuestSubmitting(false)
+        }
+    }
+
+    const fetchNewRoomOptions = async (arrival: string, departure: string) => {
+        try {
+            const res = await api.get('/rooms/available', { params: { arrival, departure } })
+            setAvailableNewRooms(res.data)
+            setFilterRoomType('')
+            setFilterFloor('')
+            setSelectedNewRoom('')
+        } catch (err) {
+            toast.error('Failed to load available rooms')
+        }
+    }
+
+    const openReassignGuestModal = () => {
+        const occ = selectedRoom ? occupancyMap[getRoomNumber(selectedRoom)] : null
+        if (!occ) return
+        setMarkOooChecked(false)
+        fetchNewRoomOptions(occ.arrival_date!, occ.departure_date!)
+        setShowReassignGuestModal(true)
+    }
+
+    const filteredNewRooms = availableNewRooms.filter(room => {
+        if (filterRoomType && room.room_type !== filterRoomType) return false
+        if (filterFloor && room.floor !== parseInt(filterFloor)) return false
+        return true
+    })
+
+    const roomTypes = [...new Set(availableNewRooms.map((r: any) => r.room_type).filter(Boolean))].sort()
+    const newRoomFloors = [...new Set(availableNewRooms.map((r: any) => r.floor).filter(Boolean))].sort((a: number, b: number) => a - b)
 
     const getCardStyle = (room: Room) => {
         if (room.out_of_order) return 'bg-gray-200 border-gray-400'
@@ -236,9 +333,10 @@ export default function RoomsTab() {
 
     const getOccupancyBadge = (info: OccupancyInfo) => {
         switch (info.status) {
-            case 'occupied': return <span className="px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-800">Occupied</span>
-            case 'reserved': return <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800">Reserved</span>
-            default: return <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">Vacant</span>
+            case 'arriving_today': return <span className="px-2 py-0.5 text-sm rounded-full bg-red-100 text-red-800 font-medium">Arriving Today</span>
+            case 'occupied': return <span className="px-2 py-0.5 text-sm rounded-full bg-purple-100 text-purple-800 font-medium">Occupied</span>
+            case 'reserved': return <span className="px-2 py-0.5 text-sm rounded-full bg-orange-100 text-orange-800 font-medium">Reserved</span>
+            default: return <span className="px-2 py-0.5 text-sm rounded-full bg-gray-100 text-gray-600 font-medium">Vacant</span>
         }
     }
 
@@ -252,7 +350,7 @@ export default function RoomsTab() {
                 <h1 className="text-3xl font-light text-gray-800">🏨 Rooms</h1>
                 <p className="text-sm text-gray-500 mt-1">
                     {isCleaner ? 'Cleaner: click a room to change status (dirty → cleaning → ready)' :
-                        isHead ? 'Head: click a room to inspect, await guest, or mark out of order' :
+                        isHead ? 'Head: click a room to inspect, await guest, mark out of order, or reassign guest' :
                             'View only'}
                 </p>
                 <button onClick={refreshRooms} className="mt-2 text-xs text-blue-600 hover:text-blue-800">↻ Refresh</button>
@@ -273,10 +371,13 @@ export default function RoomsTab() {
                     const occupancy = occupancyMap[roomNumber] || { status: 'vacant' }
                     const request = specialRequests[roomNumber]
                     const cleanerName = room.assigned_cleaner_id ? staffMap[room.assigned_cleaner_id] : null
+                    const priority = occupancy.status === 'arriving_today' && !['ready', 'inspected'].includes(getCleaningStatus(room))
+                    const cardBaseStyle = getCardStyle(room)
+                    const priorityGlow = priority ? 'border-red-500 shadow-[0_0_25px_rgba(239,68,68,0.8)] animate-pulse' : ''
 
                     return (
                         <div key={room.id} onClick={() => { setSelectedRoom(room); setShowRoomModal(true) }}
-                            className={`cursor-pointer rounded-xl border-2 shadow-sm p-4 transition hover:shadow-md hover:-translate-y-1 ${getCardStyle(room)}`}>
+                            className={`cursor-pointer rounded-xl border-2 shadow-sm p-4 transition hover:shadow-md hover:-translate-y-1 ${cardBaseStyle} ${priorityGlow}`}>
                             <div className="flex justify-between items-start">
                                 <div>
                                     <div className="text-3xl font-black text-gray-800">{roomNumber}</div>
@@ -295,18 +396,24 @@ export default function RoomsTab() {
                                 )}
                             </div>
                             {occupancy.status !== 'vacant' && occupancy.guest_name && (
-                                <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-600">
-                                    <div>🧳 {occupancy.guest_name}</div>
-                                    <div>📅 {format(parseISO(occupancy.arrival_date!), 'MMM d')} – {format(parseISO(occupancy.departure_date!), 'MMM d')}</div>
+                                <div className="mt-3 pt-3 border-t border-gray-200">
+                                    <div className="text-base font-semibold text-gray-800">🧳 {occupancy.guest_name}</div>
+                                    <div className="text-sm text-gray-600 mt-1">
+                                        📅 {format(parseISO(occupancy.arrival_date!), 'MMM d')} – {format(parseISO(occupancy.departure_date!), 'MMM d')}
+                                    </div>
                                 </div>
                             )}
                             {request && (
-                                <div className="mt-1 text-xs text-gray-500 italic">📝 {request}</div>
+                                <div className="mt-2 text-xs text-gray-500 italic">📝 {request}</div>
                             )}
-                            {/* Assigned cleaner name (head only) */}
                             {isHead && cleanerName && (
                                 <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
                                     🧹 Assigned to: {cleanerName}
+                                </div>
+                            )}
+                            {priority && (
+                                <div className="mt-2 text-xs text-red-600 font-bold">
+                                    ⚠️ Priority Cleaning
                                 </div>
                             )}
                         </div>
@@ -339,12 +446,34 @@ export default function RoomsTab() {
                                     <p className="text-sm font-semibold text-gray-700">Occupancy</p>
                                     <div className="mt-1">{getOccupancyBadge(occupancyMap[getRoomNumber(selectedRoom)])}</div>
                                     {occupancyMap[getRoomNumber(selectedRoom)].guest_name && (
-                                        <p className="text-sm text-gray-600 mt-2">
-                                            {occupancyMap[getRoomNumber(selectedRoom)].guest_name}<br/>
+                                        <p className="text-base font-medium text-gray-800 mt-2">
+                                            {occupancyMap[getRoomNumber(selectedRoom)].guest_name}
+                                        </p>
+                                    )}
+                                    {occupancyMap[getRoomNumber(selectedRoom)].arrival_date && (
+                                        <p className="text-sm text-gray-600 mt-1">
                                             {format(parseISO(occupancyMap[getRoomNumber(selectedRoom)].arrival_date!), 'MMM d')} – {format(parseISO(occupancyMap[getRoomNumber(selectedRoom)].departure_date!), 'MMM d')}
                                         </p>
                                     )}
+                                    {occupancyMap[getRoomNumber(selectedRoom)].status === 'arriving_today' && canCheckIn && (
+                                        <button onClick={handleCheckIn} className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">
+                                            ✅ Check In Guest
+                                        </button>
+                                    )}
                                 </div>
+                            )}
+
+                            {/* 🔄 REASSIGN GUEST */}
+                            {!selectedRoom.out_of_order &&
+                             (occupancyMap[getRoomNumber(selectedRoom)]?.status === 'occupied' ||
+                              occupancyMap[getRoomNumber(selectedRoom)]?.status === 'arriving_today') &&
+                             isHead && (
+                                <button
+                                    onClick={openReassignGuestModal}
+                                    className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-lg transition"
+                                >
+                                    🔄 Reassign Guest
+                                </button>
                             )}
 
                             {selectedRoom.out_of_order && selectedRoom.out_of_order_reason && (
@@ -361,7 +490,6 @@ export default function RoomsTab() {
                                 </div>
                             )}
 
-                            {/* Assigned cleaner section (head only) */}
                             {isHead && (
                                 <div className="bg-gray-50 p-3 rounded-lg border">
                                     <p className="text-sm font-semibold text-gray-700">Assigned Cleaner</p>
@@ -371,10 +499,7 @@ export default function RoomsTab() {
                                         <p className="text-sm text-gray-400 italic">Unassigned</p>
                                     )}
                                     <button
-                                        onClick={() => {
-                                            setSelectedStaffId('')
-                                            setShowReassignModal(true)
-                                        }}
+                                        onClick={() => { setSelectedStaffId(''); setShowReassignModal(true) }}
                                         className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
                                     >
                                         {selectedRoom.assigned_cleaner_id ? 'Reassign Room' : 'Assign Cleaner'}
@@ -403,10 +528,6 @@ export default function RoomsTab() {
                                                 <button onClick={() => handleStatusChange(selectedRoom.id, 'inspected')} disabled={updating}
                                                     className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition">🔍 Inspect Room</button>
                                             )}
-                                            {getCleaningStatus(selectedRoom) === 'inspected' && (
-                                                <button onClick={() => handleStatusChange(selectedRoom.id, 'awaiting')} disabled={updating}
-                                                    className="w-full bg-purple-500 hover:bg-purple-600 text-white py-2 rounded-lg transition">👤 Mark Awaiting Guest</button>
-                                            )}
                                             <button onClick={() => handleStatusChange(selectedRoom.id, 'dirty')} disabled={updating}
                                                 className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg transition">🟡 Mark Dirty (needs cleaning)</button>
                                             <hr className="my-2" />
@@ -428,7 +549,7 @@ export default function RoomsTab() {
                 </div>
             )}
 
-            {/* REASSIGN MODAL */}
+            {/* REASSIGN CLEANER MODAL */}
             {showReassignModal && selectedRoom && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl p-6">
@@ -454,6 +575,92 @@ export default function RoomsTab() {
                                 className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                                 {reassigning ? 'Assigning...' : 'Assign'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 🔄 REASSIGN GUEST MODAL */}
+            {showReassignGuestModal && selectedRoom && (
+                <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
+                        <div className="bg-orange-600 px-6 py-4 text-white">
+                            <h3 className="text-xl font-bold">Reassign Guest – Room {getRoomNumber(selectedRoom)}</h3>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <p className="text-sm text-gray-600">
+                                Moving <strong>{occupancyMap[getRoomNumber(selectedRoom)]?.guest_name}</strong> to a different room.
+                            </p>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Room Type</label>
+                                    <select
+                                        value={filterRoomType}
+                                        onChange={(e) => { setFilterRoomType(e.target.value); setSelectedNewRoom('') }}
+                                        className="w-full p-2 border rounded"
+                                    >
+                                        <option value="">All Types</option>
+                                        {roomTypes.map(type => (
+                                            <option key={type} value={type}>{type}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Floor</label>
+                                    <select
+                                        value={filterFloor}
+                                        onChange={(e) => { setFilterFloor(e.target.value); setSelectedNewRoom('') }}
+                                        className="w-full p-2 border rounded"
+                                    >
+                                        <option value="">All Floors</option>
+                                        {newRoomFloors.map(floor => (
+                                            <option key={floor} value={floor}>Floor {floor}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">New Room</label>
+                                <select
+                                    value={selectedNewRoom}
+                                    onChange={(e) => setSelectedNewRoom(e.target.value)}
+                                    className="w-full p-2 border rounded"
+                                >
+                                    <option value="">-- Choose a room --</option>
+                                    {filteredNewRooms.map((room: any) => (
+                                        <option key={room.room_number} value={room.room_number}>
+                                            {room.room_number} – {room.room_type} (Floor {room.floor})
+                                        </option>
+                                    ))}
+                                </select>
+                                {filteredNewRooms.length === 0 && (
+                                    <p className="text-xs text-gray-500 mt-1">No rooms match the selected filters.</p>
+                                )}
+                            </div>
+
+                            <label className="flex items-center gap-2 text-sm">
+                                <input
+                                    type="checkbox"
+                                    checked={markOooChecked}
+                                    onChange={(e) => setMarkOooChecked(e.target.checked)}
+                                    className="w-4 h-4"
+                                />
+                                Mark current room (Room {getRoomNumber(selectedRoom)}) as <strong>Out of Order</strong>
+                            </label>
+
+                            <div className="flex gap-3 pt-2">
+                                <button onClick={() => setShowReassignGuestModal(false)}
+                                    className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+                                <button
+                                    onClick={handleReassignGuest}
+                                    disabled={!selectedNewRoom || reassignGuestSubmitting}
+                                    className="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                                >
+                                    {reassignGuestSubmitting ? 'Moving...' : 'Move Guest'}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

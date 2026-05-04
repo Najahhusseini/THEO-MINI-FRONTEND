@@ -20,6 +20,7 @@ import ReservationTapeChart from '@/components/ReservationTapeChart'
 import EmailIngestionTab from '@/components/EmailIngestionTab'
 import AdminRoomsOverview from '@/components/AdminRoomsOverview'
 import TodayArrivals from '@/components/TodayArrivals'
+import NotificationBell from '@/components/NotificationBell'
 
 type ViewMode = 'table' | 'threePane' | 'tape' | 'email' | 'roomsOverview' | 'todaysArrivals'
 type SortField = 'guest_name' | 'arrival_date' | 'departure_date' | 'room_type' | 'status' | 'number_of_guests' | 'number_of_rooms'
@@ -80,6 +81,10 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
     const [availableRooms, setAvailableRooms] = useState<any[]>([])
     const [selectedRoomNumber, setSelectedRoomNumber] = useState('')
 
+    // Room filters for assign modal
+    const [filterRoomType, setFilterRoomType] = useState('')
+    const [filterFloor, setFilterFloor] = useState('')
+
     // Use Axios instead of bare fetch
     const fetchAvailableRooms = async (arrival: string, departure: string) => {
         try {
@@ -87,6 +92,10 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                 params: { arrival, departure }
             })
             setAvailableRooms(res.data)
+            // Reset filters
+            setFilterRoomType('')
+            setFilterFloor('')
+            setSelectedRoomNumber('')
         } catch (err) {
             toast.error('Failed to load available rooms')
         }
@@ -203,6 +212,8 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
             })
             setConfirmNow(false)
             loadReservations()
+            // Dispatch so Today's Arrivals can refresh
+            window.dispatchEvent(new CustomEvent('reservation-confirmed'))
         } catch (err: any) {
             toast.error(err.response?.data?.error || 'Failed to save')
         } finally {
@@ -216,6 +227,8 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
             await confirmReservation(id)
             toast.success('Reservation confirmed!')
             loadReservations()
+            // Dispatch event for Today's Arrivals refresh
+            window.dispatchEvent(new CustomEvent('reservation-confirmed'))
         } catch (err: any) {
             toast.error(err.response?.data?.error || 'Failed to confirm')
         }
@@ -227,6 +240,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
             await cancelReservation(id)
             toast.success('Reservation cancelled')
             loadReservations()
+            window.dispatchEvent(new CustomEvent('reservation-cancelled'))
         } catch (err: any) {
             toast.error(err.response?.data?.error || 'Failed to cancel')
         }
@@ -279,17 +293,27 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
 
     const canAssignRoom = selectedReservation?.status === 'confirmed' && ['admin', 'manager', 'reservation_manager'].includes(staff?.role || '')
 
+    // Filtering helpers for assign modal
+    const roomTypes = [...new Set(availableRooms.map((r: any) => r.room_type).filter(Boolean))].sort()
+    const filterFloors = [...new Set(availableRooms.map((r: any) => r.floor).filter(Boolean))].sort((a: number, b: number) => a - b)
+
+    const filteredRooms = availableRooms.filter((room: any) => {
+        if (filterRoomType && room.room_type !== filterRoomType) return false
+        if (filterFloor && room.floor !== parseInt(filterFloor)) return false
+        return true
+    })
+
     return (
         <div className={standalone ? "min-h-screen bg-gray-100 p-4" : "bg-gray-100 p-4"}>
             <div className="max-w-[1600px] mx-auto">
-                {/* Header and view toggle (common for both standalone and embedded) */}
+                {/* Header and view toggle (standalone) */}
                 {standalone && (
                     <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                         <div>
                             <h1 className="text-3xl font-bold text-gray-800">📅 THEO Reservation Manager</h1>
                             <p className="text-sm text-gray-600">Multi‑view dashboard for high‑volume hotels</p>
                         </div>
-                        <div className="flex gap-3 flex-wrap">
+                        <div className="flex gap-3 flex-wrap items-center">
                             <div className="flex bg-white rounded-lg shadow-sm">
                                 <button onClick={() => setViewMode('threePane')} className={`px-4 py-2 rounded-l-lg transition ${viewMode === 'threePane' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📆 Three‑Pane</button>
                                 <button onClick={() => setViewMode('tape')} className={`px-4 py-2 transition ${viewMode === 'tape' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📊 Tape Chart</button>
@@ -303,13 +327,15 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                             )}
                             <button onClick={() => { setSelectedReservation(null); setShowForm(true); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700">+ New Reservation</button>
                             <button onClick={logout} className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">Logout</button>
+                            <NotificationBell />
                         </div>
                     </div>
                 )}
 
+                {/* Header and view toggle (embedded) */}
                 {!standalone && (
                     <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
-                        <div className="flex gap-3">
+                        <div className="flex gap-3 items-center">
                             <div className="flex bg-white rounded-lg shadow-sm">
                                 <button onClick={() => setViewMode('threePane')} className={`px-4 py-2 rounded-l-lg transition ${viewMode === 'threePane' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📆 Three‑Pane</button>
                                 <button onClick={() => setViewMode('tape')} className={`px-4 py-2 transition ${viewMode === 'tape' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📊 Tape Chart</button>
@@ -322,6 +348,10 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                 <button onClick={sendPreArrivalEmails} className="px-3 py-1 bg-purple-600 text-white rounded-lg shadow hover:bg-purple-700">✉️ Send Pre‑arrival Emails</button>
                             )}
                             <button onClick={() => { setSelectedReservation(null); setShowForm(true); }} className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700">+ New Reservation</button>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <button onClick={logout} className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">Logout</button>
+                            <NotificationBell />
                         </div>
                     </div>
                 )}
@@ -529,11 +559,43 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                     </div>
                 )}
 
-                {/* Room Assignment Modal (now using Axios) */}
+                {/* Room Assignment Modal with filters */}
                 {showAssignRoomModal && selectedReservation && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                        <div className="bg-white rounded-xl max-w-md w-full p-6">
+                        <div className="bg-white rounded-xl max-w-lg w-full p-6">
                             <h3 className="text-xl font-bold mb-4">Assign Room to {selectedReservation.guest_name}</h3>
+
+                            {/* Filters */}
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Room Type</label>
+                                    <select
+                                        value={filterRoomType}
+                                        onChange={(e) => { setFilterRoomType(e.target.value); setSelectedRoomNumber('') }}
+                                        className="w-full p-2 border rounded"
+                                    >
+                                        <option value="">All Types</option>
+                                        {roomTypes.map((type: string) => (
+                                            <option key={type} value={type}>{type}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Floor</label>
+                                    <select
+                                        value={filterFloor}
+                                        onChange={(e) => { setFilterFloor(e.target.value); setSelectedRoomNumber('') }}
+                                        className="w-full p-2 border rounded"
+                                    >
+                                        <option value="">All Floors</option>
+                                        {filterFloors.map((floor: number) => (
+                                            <option key={floor} value={floor}>Floor {floor}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Room selection */}
                             <div className="mb-4">
                                 <label className="block text-sm font-medium mb-1">Select Room</label>
                                 <select
@@ -542,13 +604,17 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                     className="w-full p-2 border rounded"
                                 >
                                     <option value="">-- Choose a room --</option>
-                                    {availableRooms.map(room => (
+                                    {filteredRooms.map((room: any) => (
                                         <option key={room.room_number} value={room.room_number}>
-                                            {room.room_number} - {room.room_type} (Floor {room.floor})
+                                            {room.room_number} – {room.room_type} (Floor {room.floor})
                                         </option>
                                     ))}
                                 </select>
+                                {filteredRooms.length === 0 && (
+                                    <p className="text-xs text-gray-500 mt-1">No rooms match the selected filters.</p>
+                                )}
                             </div>
+
                             <div className="flex gap-3">
                                 <button onClick={() => setShowAssignRoomModal(false)} className="flex-1 py-2 border rounded">Cancel</button>
                                 <button
@@ -562,6 +628,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                             setShowAssignRoomModal(false)
                                             setSelectedRoomNumber('')
                                             loadReservations()
+                                            window.dispatchEvent(new CustomEvent('reservation-updated'))
                                         } catch (err: any) {
                                             toast.error(err.response?.data?.error || 'Assignment failed')
                                         }
