@@ -474,6 +474,17 @@ export const processEmail = async (emailId: string, createReservation: boolean, 
     return response.data
 }
 
+// ============ DRAFT EMAIL APIs ============
+export const createDraftEmail = async (reservationId: string, customMessage?: string) => {
+  const response = await api.post('/emails/draft', { reservationId, customMessage })
+  return response.data
+}
+
+export const sendDraftEmail = async (emailId: string) => {
+  const response = await api.post(`/emails/${emailId}/send`)
+  return response.data
+}
+
 // ============ STAYS APIs ===========
 export const getStays = async () => {
   const response = await api.get('/reservations/stays')
@@ -485,9 +496,39 @@ export const checkInStay = async (stayId: string) => {
   return response.data
 }
 
-// ✨ NEW: Move a stay to a different room (for guest reassignment)
 export const moveStayToRoom = async (stayId: string, roomNumber: string) => {
   const response = await api.patch(`/reservations/stays/${stayId}/move-room`, { roomNumber })
+  return response.data
+}
+
+// ============ WAITLIST & DATE CHANGE APIs ============
+export const waitlistReservation = async (id: string) => {
+  const response = await api.patch(`/reservations/${id}/waitlist`)
+  return response.data
+}
+
+export const requestDateChange = async (id: string, newDates?: { arrival_date?: string, departure_date?: string }) => {
+  const response = await api.patch(`/reservations/${id}/date-change-request`, newDates)
+  return response.data
+}
+
+// ============ RECEPTION APIs ============
+
+// Get aggregated stats for the reception dashboard
+export const getReceptionStats = async () => {
+  const [stays, rooms] = await Promise.all([getStays(), getRoomsWithCleaning()])
+  const today = new Date().toISOString().split('T')[0]
+  const arrivingToday = stays.filter((s: any) => s.arrival_date?.startsWith(today) && s.status !== 'checked_out').length
+  const checkedIn = stays.filter((s: any) => s.status === 'checked_in').length
+  const departingToday = stays.filter((s: any) => s.departure_date?.startsWith(today) && s.status === 'checked_in').length
+  const roomsReady = rooms.filter((r: any) => ['ready', 'inspected', 'awaiting'].includes(r.cleaning_status) && !r.out_of_order).length
+  const vacantDirty = rooms.filter((r: any) => ['dirty', 'cleaning'].includes(r.cleaning_status) && !r.out_of_order).length
+  return { arrivingToday, checkedIn, departingToday, roomsReady, vacantDirty }
+}
+
+// Toggle key issued status for a checked‑in stay
+export const toggleKeyIssued = async (stayId: string, keyIssued: boolean) => {
+  const response = await api.patch(`/reservations/stays/${stayId}/key`, { keyIssued })
   return response.data
 }
 

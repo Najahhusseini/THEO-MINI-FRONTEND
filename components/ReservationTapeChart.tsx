@@ -134,15 +134,6 @@ export default function ReservationTapeChart({ startDate: propStartDate, endDate
         }
     }
 
-    const getStatusText = (status: string) => {
-        switch (status) {
-            case 'confirmed': return 'C'
-            case 'pending_review': return 'W'
-            case 'cancelled': return 'X'
-            default: return ''
-        }
-    }
-
     const handleCellClick = (res: Reservation) => {
         setSelectedReservation(res)
         setShowModal(true)
@@ -194,15 +185,9 @@ export default function ReservationTapeChart({ startDate: propStartDate, endDate
                                 return (
                                     <tr key={res.id} className={`${rowColor} border-b hover:shadow-inner transition`}>
                                         <td className="sticky left-0 z-10 bg-inherit p-2 border-r text-sm">
-                                            <div className="flex flex-col">
-                                                <span className="font-bold truncate">{res.guest_name}</span>
-                                                <span className="text-xs text-gray-500">ID: {res.id.slice(0, 8)}</span>
-                                                <span className="text-xs">{res.source || 'Direct'}</span>
-                                                <span className="text-xs">{res.number_of_rooms} room(s)</span>
-                                                <span className={`text-xs ${res.status === 'confirmed' ? 'text-green-700' : res.status === 'pending_review' ? 'text-yellow-700' : 'text-gray-500'}`}>
-                                                    {getStatusText(res.status)}
-                                                </span>
-                                            </div>
+                                            {/* ✅ Only guest name and room count */}
+                                            <div className="font-bold truncate">{res.guest_name}</div>
+                                            <div className="text-xs text-gray-500">{res.number_of_rooms} room(s)</div>
                                         </td>
                                         {dates.map((date, idx) => {
                                             const isOccupied = date >= arrival && date < departure
@@ -220,6 +205,7 @@ export default function ReservationTapeChart({ startDate: propStartDate, endDate
                                     </tr>
                                 )
                             })}
+                            {/* Summary rows unchanged */}
                             <tr className="bg-gray-100 border-t-2 border-gray-300">
                                 <td className="sticky left-0 z-10 bg-gray-100 p-2 font-bold border-r">Occupied</td>
                                 {occupiedPerDate.map((occ, idx) => (
@@ -245,6 +231,7 @@ export default function ReservationTapeChart({ startDate: propStartDate, endDate
                 </div>
             )}
 
+            {/* Modal (unchanged) */}
             {showModal && selectedReservation && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-xl max-w-md w-full p-6">

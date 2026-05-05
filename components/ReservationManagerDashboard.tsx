@@ -9,9 +9,12 @@ import {
     confirmReservation, 
     cancelReservation,
     checkConflicts,
-    CreateReservationData
+    CreateReservationData,
+    waitlistReservation,
+    requestDateChange,
+    createDraftEmail
 } from '@/lib/api'
-import api from '@/lib/api'                       // Axios instance
+import api from '@/lib/api'
 import toast from 'react-hot-toast'
 import { format, isWithinInterval, parseISO } from 'date-fns'
 import { DayPicker } from 'react-day-picker'
@@ -22,8 +25,8 @@ import AdminRoomsOverview from '@/components/AdminRoomsOverview'
 import TodayArrivals from '@/components/TodayArrivals'
 import NotificationBell from '@/components/NotificationBell'
 
-type ViewMode = 'table' | 'threePane' | 'tape' | 'email' | 'roomsOverview' | 'todaysArrivals'
-type SortField = 'guest_name' | 'arrival_date' | 'departure_date' | 'room_type' | 'status' | 'number_of_guests' | 'number_of_rooms'
+type ViewMode = 'table' | 'threePane' | 'tape' | 'email' | 'roomsOverview' | 'todaysArrivals' | 'waitlist'
+type SortField = 'guest_name' | 'arrival_date' | 'departure_date' | 'room_type' | 'status' | 'number_of_guests' | 'number_of_rooms' | 'created_at'
 type SortOrder = 'asc' | 'desc'
 
 interface Reservation {
@@ -59,6 +62,9 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
     const [currentPage, setCurrentPage] = useState(1)
     const [rowsPerPage, setRowsPerPage] = useState(50)
 
+    const [threePaneSort, setThreePaneSort] = useState<'status' | 'recent'>('recent')
+    const [threePaneStatusFilter, setThreePaneStatusFilter] = useState<string>('all')
+
     const [selectedDate, setSelectedDate] = useState<Date>(new Date())
     const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null)
     const [showForm, setShowForm] = useState(false)
@@ -76,23 +82,24 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
     const [confirmNow, setConfirmNow] = useState(false)
     const [submitting, setSubmitting] = useState(false)
 
-    // Room assignment modal state
     const [showAssignRoomModal, setShowAssignRoomModal] = useState(false)
     const [availableRooms, setAvailableRooms] = useState<any[]>([])
     const [selectedRoomNumber, setSelectedRoomNumber] = useState('')
 
-    // Room filters for assign modal
     const [filterRoomType, setFilterRoomType] = useState('')
     const [filterFloor, setFilterFloor] = useState('')
 
-    // Use Axios instead of bare fetch
+    // ── Draft Email modal state ──
+    const [showDraftModal, setShowDraftModal] = useState(false)
+    const [draftReservation, setDraftReservation] = useState<Reservation | null>(null)
+    const [draftTemplate, setDraftTemplate] = useState<'change_dates' | 'confirm_availability' | 'custom' | null>(null)
+    const [newArrival, setNewArrival] = useState('')
+    const [newDeparture, setNewDeparture] = useState('')
+
     const fetchAvailableRooms = async (arrival: string, departure: string) => {
         try {
-            const res = await api.get('/rooms/available', {
-                params: { arrival, departure }
-            })
+            const res = await api.get('/rooms/available', { params: { arrival, departure } })
             setAvailableRooms(res.data)
-            // Reset filters
             setFilterRoomType('')
             setFilterFloor('')
             setSelectedRoomNumber('')
@@ -128,6 +135,10 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
         }
     }, [loadReservations])
 
+    const waitlistReservations = useMemo(() => {
+        return reservations.filter(r => r.status === 'waitlist' || r.status === 'date_change_requested')
+    }, [reservations])
+
     const filteredReservations = useMemo(() => {
         let filtered = [...reservations]
         if (searchTerm.trim()) {
@@ -137,7 +148,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
         filtered.sort((a, b) => {
             let aVal: any = a[sortField]
             let bVal: any = b[sortField]
-            if (sortField === 'arrival_date' || sortField === 'departure_date') {
+            if (sortField === 'arrival_date' || sortField === 'departure_date' || sortField === 'created_at') {
                 aVal = new Date(aVal).getTime()
                 bVal = new Date(bVal).getTime()
             }
@@ -153,23 +164,30 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
     const paginatedReservations = filteredReservations.slice((currentPage-1)*rowsPerPage, currentPage*rowsPerPage)
     const totalPages = Math.ceil(filteredReservations.length / rowsPerPage)
 
-    // Three‑pane: reservations for selected date, sorted by status
     const reservationsForDate = useMemo(() => {
         const covering = reservations.filter(r => {
             const arrival = new Date(r.arrival_date)
             const departure = new Date(r.departure_date)
             return isWithinInterval(selectedDate, { start: arrival, end: departure })
         })
-        const statusOrder: Record<string, number> = { 'confirmed': 1, 'pending_review': 2, 'cancelled': 3 }
-        return covering.sort((a, b) => {
-            const orderA = statusOrder[a.status] ?? 99
-            const orderB = statusOrder[b.status] ?? 99
-            if (orderA !== orderB) return orderA - orderB
-            return a.guest_name.localeCompare(b.guest_name)
-        })
-    }, [reservations, selectedDate])
+        let filtered = covering
+        if (threePaneStatusFilter !== 'all') {
+            filtered = filtered.filter(r => r.status === threePaneStatusFilter)
+        }
+        if (threePaneSort === 'recent') {
+            filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        } else {
+            const statusOrder: Record<string, number> = { 'confirmed': 1, 'pending_review': 2, 'waitlist': 3, 'date_change_requested': 4, 'cancelled': 5 }
+            filtered.sort((a, b) => {
+                const orderA = statusOrder[a.status] ?? 99
+                const orderB = statusOrder[b.status] ?? 99
+                if (orderA !== orderB) return orderA - orderB
+                return a.guest_name.localeCompare(b.guest_name)
+            })
+        }
+        return filtered
+    }, [reservations, selectedDate, threePaneSort, threePaneStatusFilter])
 
-    // Handlers
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
         setFormData({ ...formData, [e.target.name]: e.target.value })
     }
@@ -182,7 +200,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                 room_type: formData.room_type,
                 exclude_id: selectedReservation?.id
             })
-            if (result.hasConflict) toast.error('⚠️ Conflict detected! This room type is already booked for these dates.')
+            if (result.hasConflict) toast.error('⚠️ Conflict detected!')
             return result.hasConflict
         } catch { return false }
     }
@@ -212,7 +230,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
             })
             setConfirmNow(false)
             loadReservations()
-            // Dispatch so Today's Arrivals can refresh
             window.dispatchEvent(new CustomEvent('reservation-confirmed'))
         } catch (err: any) {
             toast.error(err.response?.data?.error || 'Failed to save')
@@ -222,12 +239,11 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
     }
 
     const handleConfirm = async (id: string) => {
-        if (!confirm('Confirm this reservation? It will create a Stay record.')) return
+        if (!confirm('Confirm this reservation?')) return
         try {
             await confirmReservation(id)
             toast.success('Reservation confirmed!')
             loadReservations()
-            // Dispatch event for Today's Arrivals refresh
             window.dispatchEvent(new CustomEvent('reservation-confirmed'))
         } catch (err: any) {
             toast.error(err.response?.data?.error || 'Failed to confirm')
@@ -263,11 +279,103 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
         setShowForm(true)
     }
 
+    const handleWaitlist = async (id: string) => {
+        try {
+            await waitlistReservation(id)
+            toast.success('Guest moved to waitlist')
+            loadReservations()
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed to waitlist')
+        }
+    }
+
+    const handleDateChangeRequest = async (id: string) => {
+        const newArrival = prompt('Enter proposed new arrival date (YYYY-MM-DD):')
+        if (!newArrival) return
+        const newDeparture = prompt('Enter proposed new departure date (YYYY-MM-DD):')
+        if (!newDeparture) return
+        try {
+            await requestDateChange(id, { arrival_date: newArrival, departure_date: newDeparture })
+            toast.success('Date change request sent to guest')
+            loadReservations()
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed to send date change request')
+        }
+    }
+
+    const handleUpdateWaitlist = async (res: Reservation) => {
+        setSelectedReservation(res)
+        setFormData({
+            guest_name: res.guest_name,
+            guest_email: res.guest_email || '',
+            guest_phone: res.guest_phone || '',
+            arrival_date: res.arrival_date.split('T')[0],
+            departure_date: res.departure_date.split('T')[0],
+            room_type: res.room_type,
+            number_of_guests: res.number_of_guests,
+            number_of_rooms: res.number_of_rooms,
+            special_requests: res.special_requests || ''
+        })
+        setConfirmNow(false)
+        setShowForm(true)
+    }
+
+    // ── Open draft modal ──
+    const openDraftModal = (res: Reservation) => {
+        setDraftReservation(res)
+        setDraftTemplate(null)
+        setNewArrival('')
+        setNewDeparture('')
+        setShowDraftModal(true)
+    }
+
+    // ── Generate draft based on chosen template ──
+    const handleGenerateDraft = async () => {
+        if (!draftReservation) return
+        let customMessage = ''
+
+        const origArrival = draftReservation.arrival_date ? draftReservation.arrival_date.split('T')[0] : 'N/A'
+        const origDeparture = draftReservation.departure_date ? draftReservation.departure_date.split('T')[0] : 'N/A'
+
+        if (draftTemplate === 'change_dates') {
+            if (!newArrival || !newDeparture) {
+                toast.error('Please fill in both new arrival and departure dates')
+                return
+            }
+            customMessage = `Dear ${draftReservation.guest_name},\n\n`
+                + `We received your request to change dates.\n`
+                + `Original dates: ${origArrival} to ${origDeparture}\n`
+                + `Proposed new dates: ${newArrival} to ${newDeparture}\n\n`
+                + `Please let us know if these dates work for you.\n\nThank you,\nTHEO Hotel Team`
+        } else if (draftTemplate === 'confirm_availability') {
+            customMessage = `Dear ${draftReservation.guest_name},\n\n`
+                + `Great news! The original dates you requested (${origArrival} to ${origDeparture}) are now available.\n`
+                + `Would you still like to proceed with the booking?\n\n`
+                + `Please reply to this email or call us to confirm.\n\nThank you,\nTHEO Hotel Team`
+        } else {
+            // custom / general update
+            customMessage = `Dear ${draftReservation.guest_name},\n\n`
+                + `We are writing to update you about your reservation.\n`
+                + `Original dates: ${origArrival} to ${origDeparture}\n`
+                + `If you have any questions, please reply to this email.\n\nThank you,\nTHEO Hotel Team`
+        }
+
+        try {
+            await createDraftEmail(draftReservation.id, customMessage)
+            toast.success('Draft email created! Check Email Inbox.')
+            setShowDraftModal(false)
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed to create draft email')
+        }
+    }
+
     const getStatusBadge = (status: string) => {
         switch(status) {
             case 'pending_review': return 'bg-yellow-100 text-yellow-800'
             case 'confirmed': return 'bg-green-100 text-green-800'
             case 'cancelled': return 'bg-red-100 text-red-800'
+            case 'waitlist': return 'bg-orange-100 text-orange-800'
+            case 'date_change_requested': return 'bg-purple-100 text-purple-800'
             default: return 'bg-gray-100 text-gray-800'
         }
     }
@@ -293,7 +401,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
 
     const canAssignRoom = selectedReservation?.status === 'confirmed' && ['admin', 'manager', 'reservation_manager'].includes(staff?.role || '')
 
-    // Filtering helpers for assign modal
     const roomTypes = [...new Set(availableRooms.map((r: any) => r.room_type).filter(Boolean))].sort()
     const filterFloors = [...new Set(availableRooms.map((r: any) => r.floor).filter(Boolean))].sort((a: number, b: number) => a - b)
 
@@ -306,7 +413,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
     return (
         <div className={standalone ? "min-h-screen bg-gray-100 p-4" : "bg-gray-100 p-4"}>
             <div className="max-w-[1600px] mx-auto">
-                {/* Header and view toggle (standalone) */}
+                {/* Header and view toggle */}
                 {standalone && (
                     <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                         <div>
@@ -320,7 +427,8 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                 <button onClick={() => setViewMode('table')} className={`px-4 py-2 transition ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📋 Table</button>
                                 <button onClick={() => setViewMode('email')} className={`px-4 py-2 transition ${viewMode === 'email' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📧 Email Inbox</button>
                                 <button onClick={() => setViewMode('roomsOverview')} className={`px-4 py-2 transition ${viewMode === 'roomsOverview' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>🏨 Rooms Overview</button>
-                                <button onClick={() => setViewMode('todaysArrivals')} className={`px-4 py-2 rounded-r-lg transition ${viewMode === 'todaysArrivals' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📋 Today's Arrivals</button>
+                                <button onClick={() => setViewMode('todaysArrivals')} className={`px-4 py-2 transition ${viewMode === 'todaysArrivals' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📋 Today's Arrivals</button>
+                                <button onClick={() => setViewMode('waitlist')} className={`px-4 py-2 rounded-r-lg transition ${viewMode === 'waitlist' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>⏳ Waitlist</button>
                             </div>
                             {['admin', 'manager', 'reservation_manager'].includes(staff?.role || '') && (
                                 <button onClick={sendPreArrivalEmails} className="px-3 py-1 bg-purple-600 text-white rounded-lg shadow hover:bg-purple-700">✉️ Send Pre‑arrival Emails</button>
@@ -332,7 +440,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                     </div>
                 )}
 
-                {/* Header and view toggle (embedded) */}
                 {!standalone && (
                     <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                         <div className="flex gap-3 items-center">
@@ -342,7 +449,8 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                 <button onClick={() => setViewMode('table')} className={`px-4 py-2 transition ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📋 Table</button>
                                 <button onClick={() => setViewMode('email')} className={`px-4 py-2 transition ${viewMode === 'email' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📧 Email Inbox</button>
                                 <button onClick={() => setViewMode('roomsOverview')} className={`px-4 py-2 transition ${viewMode === 'roomsOverview' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>🏨 Rooms Overview</button>
-                                <button onClick={() => setViewMode('todaysArrivals')} className={`px-4 py-2 rounded-r-lg transition ${viewMode === 'todaysArrivals' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📋 Today's Arrivals</button>
+                                <button onClick={() => setViewMode('todaysArrivals')} className={`px-4 py-2 transition ${viewMode === 'todaysArrivals' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📋 Today's Arrivals</button>
+                                <button onClick={() => setViewMode('waitlist')} className={`px-4 py-2 rounded-r-lg transition ${viewMode === 'waitlist' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>⏳ Waitlist</button>
                             </div>
                             {['admin', 'manager', 'reservation_manager'].includes(staff?.role || '') && (
                                 <button onClick={sendPreArrivalEmails} className="px-3 py-1 bg-purple-600 text-white rounded-lg shadow hover:bg-purple-700">✉️ Send Pre‑arrival Emails</button>
@@ -359,25 +467,33 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                 {/* ==================== THREE‑PANE VIEW ==================== */}
                 {viewMode === 'threePane' && (
                     <div className="flex flex-col lg:flex-row gap-6">
-                        {/* Left: Mini Calendar */}
                         <div className="lg:w-1/3 bg-white rounded-lg shadow p-4">
                             <DayPicker
                                 mode="single"
                                 selected={selectedDate}
                                 onSelect={(date) => date && setSelectedDate(date)}
-                                modifiers={{
-                                    booked: (date) => reservations.some(r => 
-                                        isWithinInterval(date, { start: new Date(r.arrival_date), end: new Date(r.departure_date) })
-                                    )
-                                }}
-                                modifiersClassNames={{ booked: 'booked-day' }}
                             />
-                            <style>{`.booked-day { background-color: #fee2e2 !important; color: #991b1b !important; border-radius: 50%; }`}</style>
-                            <div className="mt-4 text-center text-sm text-gray-500">Click a date to see reservations</div>
                         </div>
-
-                        {/* Centre: Sorted list of reservations for the selected date */}
                         <div className="lg:w-1/3 bg-white rounded-lg shadow p-4 overflow-y-auto max-h-[70vh]">
+                            <div className="flex gap-2 mb-3 flex-wrap">
+                                <select
+                                    value={threePaneStatusFilter}
+                                    onChange={(e) => setThreePaneStatusFilter(e.target.value)}
+                                    className="p-1 border rounded text-sm"
+                                >
+                                    <option value="all">All Statuses</option>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="pending_review">Pending Review</option>
+                                    <option value="waitlist">Waitlist</option>
+                                    <option value="cancelled">Cancelled</option>
+                                </select>
+                                <button
+                                    onClick={() => setThreePaneSort(threePaneSort === 'recent' ? 'status' : 'recent')}
+                                    className="px-3 py-1 bg-gray-200 rounded text-sm"
+                                >
+                                    Sort: {threePaneSort === 'recent' ? 'Most Recent' : 'By Status'}
+                                </button>
+                            </div>
                             <h2 className="text-lg font-semibold mb-3">
                                 {format(selectedDate, 'EEEE, MMM d, yyyy')}
                             </h2>
@@ -391,7 +507,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                             <div className="text-sm text-gray-500">{res.room_type} · {res.number_of_rooms} room(s)</div>
                                             <div className="text-xs mt-1">
                                                 <span className={`px-2 py-0.5 rounded-full ${getStatusBadge(res.status)}`}>
-                                                    {res.status === 'pending_review' ? 'Waitlist' : res.status.toUpperCase()}
+                                                    {res.status.replace('_', ' ').toUpperCase()}
                                                 </span>
                                             </div>
                                         </div>
@@ -399,8 +515,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                 </div>
                             )}
                         </div>
-
-                        {/* Right: Detail sidebar with assign‑room button */}
                         <div className="lg:w-1/3 bg-white rounded-lg shadow p-4 overflow-y-auto max-h-[70vh]">
                             {selectedReservation ? (
                                 <div>
@@ -415,7 +529,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                         <div><span className="font-medium">Dates:</span> {format(parseISO(selectedReservation.arrival_date), 'MMM d')} – {format(parseISO(selectedReservation.departure_date), 'MMM d, yyyy')}</div>
                                         <div><span className="font-medium">Room type:</span> {selectedReservation.room_type}</div>
                                         <div><span className="font-medium">Guests / Rooms:</span> {selectedReservation.number_of_guests} / {selectedReservation.number_of_rooms}</div>
-                                        {selectedReservation.special_requests && <div><span className="font-medium">Requests:</span> {selectedReservation.special_requests}</div>}
                                         <div className="pt-4 flex gap-2 flex-wrap">
                                             {selectedReservation.status === 'pending_review' && (
                                                 <>
@@ -457,13 +570,50 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                 {viewMode === 'email' && <EmailIngestionTab />}
                 {viewMode === 'roomsOverview' && <AdminRoomsOverview />}
                 {viewMode === 'todaysArrivals' && <TodayArrivals />}
+                {viewMode === 'waitlist' && (
+                    <div className="bg-white rounded-lg shadow p-6">
+                        <h2 className="text-2xl font-bold mb-4">⏳ Waitlist & Date Change Requests</h2>
+                        {waitlistReservations.length === 0 ? (
+                            <p className="text-gray-500">No waitlisted guests.</p>
+                        ) : (
+                            <table className="min-w-full divide-y divide-gray-200">
+                                <thead>
+                                    <tr>
+                                        <th className="px-4 py-2 text-left">Guest</th>
+                                        <th className="px-4 py-2 text-left">Dates</th>
+                                        <th className="px-4 py-2 text-left">Status</th>
+                                        <th className="px-4 py-2 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {waitlistReservations.map(res => (
+                                        <tr key={res.id} className="border-t">
+                                            <td className="px-4 py-2">{res.guest_name}</td>
+                                            <td className="px-4 py-2">{res.arrival_date.split('T')[0]} – {res.departure_date.split('T')[0]}</td>
+                                            <td className="px-4 py-2">
+                                                <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadge(res.status)}`}>
+                                                    {res.status.replace('_', ' ').toUpperCase()}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-2 text-right space-x-2">
+                                                <button onClick={() => handleUpdateWaitlist(res)} className="text-blue-600 text-sm hover:underline">Edit</button>
+                                                <button onClick={() => handleConfirm(res.id)} className="text-green-600 text-sm hover:underline">Confirm</button>
+                                                <button onClick={() => openDraftModal(res)} className="text-purple-600 text-sm hover:underline">Draft Email</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                )}
 
                 {/* ==================== TABLE VIEW ==================== */}
                 {viewMode === 'table' && (
                     <>
                         <div className="bg-white rounded-lg shadow p-4 mb-6 flex flex-wrap gap-4 items-center justify-between">
                             <div className="flex gap-2 flex-wrap">
-                                {['all','pending_review','confirmed','cancelled'].map(s => (
+                                {['all','pending_review','confirmed','cancelled','waitlist','date_change_requested'].map(s => (
                                     <button key={s} onClick={() => setStatusFilter(s)} className={`px-3 py-1 rounded-full text-sm ${statusFilter === s ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
                                         {s === 'all' ? 'All' : s.replace('_',' ').toUpperCase()}
                                     </button>
@@ -481,7 +631,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                 <thead className="bg-gray-50">
                                     <tr>
                                         {['guest_name','arrival_date','departure_date','room_type','number_of_rooms','number_of_guests','status','actions'].map(field => (
-                                            <th key={field} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100" onClick={() => { if (field !== 'actions') handleSort(field as SortField) }}>
+                                            <th key={field} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-gray-100" onClick={() => { if (field !== 'actions') { setSortField(field as SortField); setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc') } }}>
                                                 {field.replace('_',' ')} {sortField === field && (sortOrder === 'asc' ? '↑' : '↓')}
                                             </th>
                                         ))}
@@ -497,14 +647,28 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                             <td className="px-4 py-3 text-sm text-center">{res.number_of_rooms}</td>
                                             <td className="px-4 py-3 text-sm text-center">{res.number_of_guests}</td>
                                             <td className="px-4 py-3"><span className={`px-2 py-1 text-xs rounded-full ${getStatusBadge(res.status)}`}>{res.status.replace('_',' ').toUpperCase()}</span></td>
-                                            <td className="px-4 py-3 text-sm flex gap-2">
+                                            <td className="px-4 py-3 text-sm flex gap-2 flex-wrap">
                                                 {res.status === 'pending_review' && (
                                                     <><button onClick={() => handleConfirm(res.id)} className="text-green-600 hover:text-green-900">Confirm</button>
                                                     <button onClick={() => handleEdit(res)} className="text-blue-600 hover:text-blue-900">Edit</button>
-                                                    <button onClick={() => handleCancel(res.id)} className="text-red-600 hover:text-red-900">Cancel</button></>
+                                                    <button onClick={() => handleCancel(res.id)} className="text-red-600 hover:text-red-900">Cancel</button>
+                                                    <button onClick={() => handleWaitlist(res.id)} className="text-orange-600 hover:text-orange-900">Waitlist</button>
+                                                    <button onClick={() => handleDateChangeRequest(res.id)} className="text-purple-600 hover:text-purple-900">Date Change</button></>
                                                 )}
                                                 {res.status === 'confirmed' && (
-                                                    <button onClick={() => handleCancel(res.id)} className="text-red-600 hover:text-red-900">Cancel</button>
+                                                    <><button onClick={() => handleCancel(res.id)} className="text-red-600 hover:text-red-900">Cancel</button>
+                                                    <button onClick={() => handleWaitlist(res.id)} className="text-orange-600 hover:text-orange-900">Waitlist</button>
+                                                    <button onClick={() => handleDateChangeRequest(res.id)} className="text-purple-600 hover:text-purple-900">Date Change</button></>
+                                                )}
+                                                {res.status === 'waitlist' && (
+                                                    <><button onClick={() => handleUpdateWaitlist(res)} className="text-blue-600 hover:text-blue-900">Edit</button>
+                                                    <button onClick={() => handleConfirm(res.id)} className="text-green-600 hover:text-green-900">Confirm</button>
+                                                    <button onClick={() => openDraftModal(res)} className="text-purple-600 hover:text-purple-900">Draft Email</button></>
+                                                )}
+                                                {res.status === 'date_change_requested' && (
+                                                    <><button onClick={() => handleUpdateWaitlist(res)} className="text-blue-600 hover:text-blue-900">Edit</button>
+                                                    <button onClick={() => handleConfirm(res.id)} className="text-green-600 hover:text-green-900">Confirm</button>
+                                                    <button onClick={() => openDraftModal(res)} className="text-purple-600 hover:text-purple-900">Draft Email</button></>
                                                 )}
                                             </td>
                                         </tr>
@@ -559,13 +723,11 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                     </div>
                 )}
 
-                {/* Room Assignment Modal with filters */}
+                {/* Room Assignment Modal with filters (unchanged) */}
                 {showAssignRoomModal && selectedReservation && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-xl max-w-lg w-full p-6">
                             <h3 className="text-xl font-bold mb-4">Assign Room to {selectedReservation.guest_name}</h3>
-
-                            {/* Filters */}
                             <div className="grid grid-cols-2 gap-4 mb-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Room Type</label>
@@ -594,8 +756,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                     </select>
                                 </div>
                             </div>
-
-                            {/* Room selection */}
                             <div className="mb-4">
                                 <label className="block text-sm font-medium mb-1">Select Room</label>
                                 <select
@@ -610,11 +770,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                         </option>
                                     ))}
                                 </select>
-                                {filteredRooms.length === 0 && (
-                                    <p className="text-xs text-gray-500 mt-1">No rooms match the selected filters.</p>
-                                )}
                             </div>
-
                             <div className="flex gap-3">
                                 <button onClick={() => setShowAssignRoomModal(false)} className="flex-1 py-2 border rounded">Cancel</button>
                                 <button
@@ -628,7 +784,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                             setShowAssignRoomModal(false)
                                             setSelectedRoomNumber('')
                                             loadReservations()
-                                            window.dispatchEvent(new CustomEvent('reservation-updated'))
                                         } catch (err: any) {
                                             toast.error(err.response?.data?.error || 'Assignment failed')
                                         }
@@ -638,6 +793,100 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                     Assign
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── Draft Email Modal ── */}
+                {showDraftModal && draftReservation && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div className="bg-white rounded-xl max-w-md w-full shadow-xl p-6">
+                            <h3 className="text-xl font-bold mb-2">Draft Email for {draftReservation.guest_name}</h3>
+                            <p className="text-sm text-gray-500 mb-4">
+                                Original dates: {draftReservation.arrival_date?.split('T')[0]} – {draftReservation.departure_date?.split('T')[0]}
+                            </p>
+
+                            {!draftTemplate && (
+                                <div className="space-y-2">
+                                    <button
+                                        onClick={() => setDraftTemplate('change_dates')}
+                                        className="w-full bg-indigo-500 hover:bg-indigo-600 text-white py-2 rounded-lg"
+                                    >
+                                        📅 Change / Modify Dates
+                                    </button>
+                                    <button
+                                        onClick={() => setDraftTemplate('confirm_availability')}
+                                        className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg"
+                                    >
+                                        ✅ Confirm Availability
+                                    </button>
+                                    <button
+                                        onClick={() => setDraftTemplate('custom')}
+                                        className="w-full bg-gray-500 hover:bg-gray-600 text-white py-2 rounded-lg"
+                                    >
+                                        ✉️ Custom Update
+                                    </button>
+                                    <button
+                                        onClick={() => setShowDraftModal(false)}
+                                        className="w-full py-2 border rounded-lg mt-2"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            )}
+
+                            {draftTemplate === 'change_dates' && (
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">New Arrival Date</label>
+                                        <input
+                                            type="date"
+                                            value={newArrival}
+                                            onChange={(e) => setNewArrival(e.target.value)}
+                                            className="w-full p-2 border rounded"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">New Departure Date</label>
+                                        <input
+                                            type="date"
+                                            value={newDeparture}
+                                            onChange={(e) => setNewDeparture(e.target.value)}
+                                            className="w-full p-2 border rounded"
+                                        />
+                                    </div>
+                                    <div className="flex gap-2 pt-2">
+                                        <button onClick={() => setDraftTemplate(null)} className="flex-1 py-2 border rounded">Back</button>
+                                        <button onClick={handleGenerateDraft} className="flex-1 bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700">
+                                            Generate Draft
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {draftTemplate === 'confirm_availability' && (
+                                <div className="space-y-3">
+                                    <p className="text-sm text-gray-600">This will generate an email telling the guest their original dates are available and ask if they'd still like to proceed.</p>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setDraftTemplate(null)} className="flex-1 py-2 border rounded">Back</button>
+                                        <button onClick={handleGenerateDraft} className="flex-1 bg-green-600 text-white py-2 rounded hover:bg-green-700">
+                                            Generate Draft
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {draftTemplate === 'custom' && (
+                                <div className="space-y-3">
+                                    <p className="text-sm text-gray-600">Generates a general waitlist update email.</p>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setDraftTemplate(null)} className="flex-1 py-2 border rounded">Back</button>
+                                        <button onClick={handleGenerateDraft} className="flex-1 bg-gray-600 text-white py-2 rounded hover:bg-gray-700">
+                                            Generate Draft
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
