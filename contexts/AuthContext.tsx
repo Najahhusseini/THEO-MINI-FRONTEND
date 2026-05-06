@@ -24,11 +24,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const checkAuth = async () => {
     const token = localStorage.getItem('accessToken')
-    if (token) {
-      try {
-        const staffData = await getCurrentStaff()
-        setStaff(staffData)
-      } catch (error) {
+    if (!token) {
+      setIsLoading(false)
+      return
+    }
+    try {
+      const staffData = await getCurrentStaff()
+      setStaff(staffData)
+    } catch (error: any) {
+      console.error('Auth check failed:', error.message)
+      // Only clear token if it's a 401 (invalid/expired), not a network error
+      if (error.response?.status === 401) {
         localStorage.removeItem('accessToken')
         localStorage.removeItem('refreshToken')
       }
@@ -43,6 +49,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem('refreshToken', data.refreshToken)
       setStaff(data.staff)
       toast.success(`Welcome back, ${data.staff.name}!`)
+
+      // ✅ Redirect based on role
+      const role = data.staff?.role
+      if (role === 'reservation_manager') {
+        window.location.href = '/reservation-manager'
+      } else if (role === 'frontdesk' || role === 'reception') {
+        window.location.href = '/reception'
+      } else {
+        window.location.href = '/dashboard'
+      }
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Login failed')
       throw error

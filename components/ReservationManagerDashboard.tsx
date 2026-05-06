@@ -3,12 +3,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { 
-    createReservation, 
-    getReservations, 
-    updateReservation, 
-    confirmReservation, 
+    createReservation,
+    getReservations,
+    updateReservation,
+    confirmReservation,
     cancelReservation,
-    checkConflicts,
     CreateReservationData,
     waitlistReservation,
     requestDateChange,
@@ -82,6 +81,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
     const [confirmNow, setConfirmNow] = useState(false)
     const [submitting, setSubmitting] = useState(false)
 
+    // Room assignment modal state
     const [showAssignRoomModal, setShowAssignRoomModal] = useState(false)
     const [availableRooms, setAvailableRooms] = useState<any[]>([])
     const [selectedRoomNumber, setSelectedRoomNumber] = useState('')
@@ -192,29 +192,21 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
         setFormData({ ...formData, [e.target.name]: e.target.value })
     }
 
-    const checkConflictsWrapper = async (): Promise<boolean> => {
-        try {
-            const result = await checkConflicts({
-                arrival_date: formData.arrival_date,
-                departure_date: formData.departure_date,
-                room_type: formData.room_type,
-                exclude_id: selectedReservation?.id
-            })
-            if (result.hasConflict) toast.error('⚠️ Conflict detected!')
-            return result.hasConflict
-        } catch { return false }
-    }
-
+    // ✅ FIXED: Convert number fields to integers before sending
     const submitReservation = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!formData.guest_name || !formData.arrival_date || !formData.departure_date) {
             toast.error('Please fill in all required fields')
             return
         }
-        if (await checkConflictsWrapper()) return
         setSubmitting(true)
         try {
-            const dataToSend = { ...formData, status: confirmNow ? 'confirmed' : 'pending_review' }
+            const dataToSend = {
+                ...formData,
+                number_of_guests: parseInt(formData.number_of_guests as any) || 1,
+                number_of_rooms: parseInt(formData.number_of_rooms as any) || 1,
+                status: confirmNow ? 'confirmed' : 'pending_review'
+            }
             if (selectedReservation) {
                 await updateReservation(selectedReservation.id, dataToSend)
                 toast.success('Reservation updated')
@@ -320,7 +312,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
         setShowForm(true)
     }
 
-    // ── Open draft modal ──
     const openDraftModal = (res: Reservation) => {
         setDraftReservation(res)
         setDraftTemplate(null)
@@ -329,7 +320,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
         setShowDraftModal(true)
     }
 
-    // ── Generate draft based on chosen template ──
     const handleGenerateDraft = async () => {
         if (!draftReservation) return
         let customMessage = ''
@@ -353,7 +343,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                 + `Would you still like to proceed with the booking?\n\n`
                 + `Please reply to this email or call us to confirm.\n\nThank you,\nTHEO Hotel Team`
         } else {
-            // custom / general update
             customMessage = `Dear ${draftReservation.guest_name},\n\n`
                 + `We are writing to update you about your reservation.\n`
                 + `Original dates: ${origArrival} to ${origDeparture}\n`
@@ -688,7 +677,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                     </>
                 )}
 
-                {/* Reservation modal (unchanged) */}
+                {/* Reservation modal – SIMPLIFIED, NO ROOM TYPE */}
                 {showForm && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-auto">
@@ -704,13 +693,18 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                         <input type="date" name="arrival_date" value={formData.arrival_date} onChange={handleInputChange} required className="p-2 border rounded" />
                                         <input type="date" name="departure_date" value={formData.departure_date} onChange={handleInputChange} required className="p-2 border rounded" />
                                     </div>
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <select name="room_type" value={formData.room_type} onChange={handleInputChange} className="p-2 border rounded">
-                                            <option>Standard</option><option>Deluxe</option><option>Suite</option><option>Family</option><option>Executive</option><option>Presidential</option>
-                                        </select>
-                                        <input type="number" name="number_of_guests" min="1" value={formData.number_of_guests} onChange={handleInputChange} className="p-2 border rounded" />
-                                        <input type="number" name="number_of_rooms" min="1" value={formData.number_of_rooms} onChange={handleInputChange} className="p-2 border rounded" />
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Number of Guests</label>
+                                            <input type="number" name="number_of_guests" min="1" value={formData.number_of_guests} onChange={handleInputChange} className="w-full p-2 border rounded" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Number of Rooms</label>
+                                            <input type="number" name="number_of_rooms" min="1" value={formData.number_of_rooms} onChange={handleInputChange} className="w-full p-2 border rounded" />
+                                        </div>
                                     </div>
+
                                     <textarea name="special_requests" placeholder="Special requests" rows={3} value={formData.special_requests} onChange={handleInputChange} className="w-full p-2 border rounded" />
                                     <label className="flex items-center gap-2"><input type="checkbox" checked={confirmNow} onChange={e=>setConfirmNow(e.target.checked)} /> Confirm immediately (skip pending review)</label>
                                     <div className="flex gap-3 pt-4">

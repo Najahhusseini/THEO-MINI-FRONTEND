@@ -38,7 +38,7 @@ type OccupancyInfo = {
     stay_id?: string
 }
 
-export default function RoomsTab() {
+export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
     const { staff } = useAuth()
     const { rooms, loading, updateRoomStatus, markRoomOutOfOrder, removeRoomOutOfOrder, refreshRooms } = useRooms()
     const [selectedFloor, setSelectedFloor] = useState<number>(1)
@@ -63,6 +63,11 @@ export default function RoomsTab() {
     const [reassignGuestSubmitting, setReassignGuestSubmitting] = useState(false)
     const [filterRoomType, setFilterRoomType] = useState('')
     const [filterFloor, setFilterFloor] = useState('')
+
+    // ── Filtering state ──
+    const [occupancyFilter, setOccupancyFilter] = useState<string>('all')
+    const [cleaningFilter, setCleaningFilter] = useState<string>('all')
+    const [typeFilter, setTypeFilter] = useState<string>('all')
 
     const isHead = staff?.role === 'head_housekeeping' || staff?.role === 'admin' || staff?.role === 'manager'
     const isCleaner = staff?.role === 'housekeeping'
@@ -145,7 +150,6 @@ export default function RoomsTab() {
             await updateRoomStatus(roomId, newStatus)
             toast.success(`Room status → ${newStatus.toUpperCase()}`)
 
-            // 🏨 AUTO AWAIT: if inspecting and there's a guest arriving today
             if (newStatus === 'inspected' && selectedRoom) {
                 const roomNum = getRoomNumber(selectedRoom)
                 const occ = occupancyMap[roomNum]
@@ -340,7 +344,15 @@ export default function RoomsTab() {
         }
     }
 
-    const filteredRooms = rooms.filter(r => getFloor(r) === selectedFloor)
+    const filteredRooms = rooms.filter(r => {
+        if (getFloor(r) !== selectedFloor) return false
+        const roomNum = getRoomNumber(r)
+        const occ = occupancyMap[roomNum]?.status || 'vacant'
+        if (occupancyFilter !== 'all' && occ !== occupancyFilter) return false
+        if (cleaningFilter !== 'all' && getCleaningStatus(r) !== cleaningFilter) return false
+        if (typeFilter !== 'all' && getRoomType(r) !== typeFilter) return false
+        return true
+    })
 
     if (loading) return <div className="flex justify-center items-center h-64 text-gray-500">Loading rooms...</div>
 
@@ -363,6 +375,48 @@ export default function RoomsTab() {
                         Floor {floor}
                     </button>
                 ))}
+            </div>
+
+            {/* ── Filtering bar ── */}
+            <div className="max-w-7xl mx-auto mb-6 flex flex-wrap gap-4 items-center border-b border-gray-200 pb-4">
+                <div className="flex items-center gap-2">
+                    <label className="text-xs font-medium text-gray-500 uppercase">Occupancy</label>
+                    <select value={occupancyFilter} onChange={(e) => setOccupancyFilter(e.target.value)} className="p-2 border rounded text-sm">
+                        <option value="all">All</option>
+                        <option value="vacant">Vacant</option>
+                        <option value="occupied">Occupied</option>
+                        <option value="arriving_today">Arriving Today</option>
+                        <option value="reserved">Reserved</option>
+                    </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <label className="text-xs font-medium text-gray-500 uppercase">Cleaning</label>
+                    <select value={cleaningFilter} onChange={(e) => setCleaningFilter(e.target.value)} className="p-2 border rounded text-sm">
+                        <option value="all">All</option>
+                        <option value="dirty">Dirty</option>
+                        <option value="cleaning">Cleaning</option>
+                        <option value="ready">Ready</option>
+                        <option value="inspected">Inspected</option>
+                        <option value="awaiting">Awaiting</option>
+                    </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <label className="text-xs font-medium text-gray-500 uppercase">Room Type</label>
+                    <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="p-2 border rounded text-sm">
+                        <option value="all">All</option>
+                        {[...new Set(rooms.map(r => getRoomType(r)))].sort().map(type => (
+                            <option key={type} value={type}>{type}</option>
+                        ))}
+                    </select>
+                </div>
+
+                {(occupancyFilter !== 'all' || cleaningFilter !== 'all' || typeFilter !== 'all') && (
+                    <button onClick={() => { setOccupancyFilter('all'); setCleaningFilter('all'); setTypeFilter('all') }} className="px-3 py-1 bg-gray-200 rounded-lg text-sm hover:bg-gray-300">
+                        ✕ Clear filters
+                    </button>
+                )}
             </div>
 
             <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
@@ -463,15 +517,12 @@ export default function RoomsTab() {
                                 </div>
                             )}
 
-                            {/* 🔄 REASSIGN GUEST */}
+                            {/* 🔄 REASSIGN GUEST – visible even in readOnly mode */}
                             {!selectedRoom.out_of_order &&
                              (occupancyMap[getRoomNumber(selectedRoom)]?.status === 'occupied' ||
                               occupancyMap[getRoomNumber(selectedRoom)]?.status === 'arriving_today') &&
                              isHead && (
-                                <button
-                                    onClick={openReassignGuestModal}
-                                    className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-lg transition"
-                                >
+                                <button onClick={openReassignGuestModal} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-lg transition">
                                     🔄 Reassign Guest
                                 </button>
                             )}
@@ -490,7 +541,8 @@ export default function RoomsTab() {
                                 </div>
                             )}
 
-                            {isHead && (
+                            {/* ✅ Hide cleaner/head actions + reassign cleaner when readOnly */}
+                            {!readOnly && isHead && (
                                 <div className="bg-gray-50 p-3 rounded-lg border">
                                     <p className="text-sm font-semibold text-gray-700">Assigned Cleaner</p>
                                     {selectedRoom.assigned_cleaner_id && staffMap[selectedRoom.assigned_cleaner_id] ? (
@@ -498,26 +550,21 @@ export default function RoomsTab() {
                                     ) : (
                                         <p className="text-sm text-gray-400 italic">Unassigned</p>
                                     )}
-                                    <button
-                                        onClick={() => { setSelectedStaffId(''); setShowReassignModal(true) }}
-                                        className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline"
-                                    >
+                                    <button onClick={() => { setSelectedStaffId(''); setShowReassignModal(true) }} className="mt-2 text-xs text-blue-600 hover:text-blue-800 underline">
                                         {selectedRoom.assigned_cleaner_id ? 'Reassign Room' : 'Assign Cleaner'}
                                     </button>
                                 </div>
                             )}
 
-                            {!selectedRoom.out_of_order ? (
+                            {!readOnly && !selectedRoom.out_of_order ? (
                                 <>
                                     {isCleaner && (
                                         <div className="space-y-2">
                                             {getCleaningStatus(selectedRoom) === 'dirty' && (
-                                                <button onClick={() => handleStatusChange(selectedRoom.id, 'cleaning')} disabled={updating}
-                                                    className="w-full bg-yellow-500 hover:bg-yellow-600 text-white py-2 rounded-lg transition">🧹 Start Cleaning</button>
+                                                <button onClick={() => handleStatusChange(selectedRoom.id, 'cleaning')} disabled={updating} className="w-full bg-yellow-500 hover:bg-yellow-600 text-white py-2 rounded-lg transition">🧹 Start Cleaning</button>
                                             )}
                                             {getCleaningStatus(selectedRoom) === 'cleaning' && (
-                                                <button onClick={() => handleStatusChange(selectedRoom.id, 'ready')} disabled={updating}
-                                                    className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg transition">✅ Mark Ready</button>
+                                                <button onClick={() => handleStatusChange(selectedRoom.id, 'ready')} disabled={updating} className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg transition">✅ Mark Ready</button>
                                             )}
                                         </div>
                                     )}
@@ -525,21 +572,17 @@ export default function RoomsTab() {
                                     {isHead && (
                                         <div className="space-y-2">
                                             {getCleaningStatus(selectedRoom) === 'ready' && (
-                                                <button onClick={() => handleStatusChange(selectedRoom.id, 'inspected')} disabled={updating}
-                                                    className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition">🔍 Inspect Room</button>
+                                                <button onClick={() => handleStatusChange(selectedRoom.id, 'inspected')} disabled={updating} className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition">🔍 Inspect Room</button>
                                             )}
-                                            <button onClick={() => handleStatusChange(selectedRoom.id, 'dirty')} disabled={updating}
-                                                className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg transition">🟡 Mark Dirty (needs cleaning)</button>
+                                            <button onClick={() => handleStatusChange(selectedRoom.id, 'dirty')} disabled={updating} className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg transition">🟡 Mark Dirty (needs cleaning)</button>
                                             <hr className="my-2" />
-                                            <button onClick={() => { setOooReason(''); const reason = prompt('Enter reason for out of order:'); if (reason && reason.trim()) { setOooReason(reason); handleSetOutOfOrder() } }} disabled={oooSubmitting}
-                                                className="w-full bg-gray-700 hover:bg-gray-800 text-white py-2 rounded-lg transition">🚫 Mark Out of Order</button>
+                                            <button onClick={() => { setOooReason(''); const reason = prompt('Enter reason for out of order:'); if (reason && reason.trim()) { setOooReason(reason); handleSetOutOfOrder() } }} disabled={oooSubmitting} className="w-full bg-gray-700 hover:bg-gray-800 text-white py-2 rounded-lg transition">🚫 Mark Out of Order</button>
                                         </div>
                                     )}
                                 </>
                             ) : (
-                                isHead && (
-                                    <button onClick={() => handleRemoveOutOfOrder(selectedRoom.id)} disabled={updating}
-                                        className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">✅ Restore to Service</button>
+                                !readOnly && isHead && (
+                                    <button onClick={() => handleRemoveOutOfOrder(selectedRoom.id)} disabled={updating} className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">✅ Restore to Service</button>
                                 )
                             )}
 
@@ -549,18 +592,14 @@ export default function RoomsTab() {
                 </div>
             )}
 
-            {/* REASSIGN CLEANER MODAL */}
-            {showReassignModal && selectedRoom && (
+            {/* REASSIGN CLEANER MODAL – only if NOT readOnly */}
+            {!readOnly && showReassignModal && selectedRoom && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl p-6">
                         <h3 className="text-lg font-bold mb-4">Assign Cleaner for Room {getRoomNumber(selectedRoom)}</h3>
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Select Staff</label>
-                            <select
-                                value={selectedStaffId}
-                                onChange={(e) => setSelectedStaffId(e.target.value)}
-                                className="w-full p-2 border rounded"
-                            >
+                            <select value={selectedStaffId} onChange={(e) => setSelectedStaffId(e.target.value)} className="w-full p-2 border rounded">
                                 <option value="">-- Choose a cleaner --</option>
                                 {Object.entries(staffMap).map(([id, name]) => (
                                     <option key={id} value={id}>{name}</option>
@@ -568,11 +607,8 @@ export default function RoomsTab() {
                             </select>
                         </div>
                         <div className="flex gap-3">
-                            <button onClick={() => setShowReassignModal(false)}
-                                className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-                            <button onClick={handleReassign}
-                                disabled={!selectedStaffId || reassigning}
-                                className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                            <button onClick={() => setShowReassignModal(false)} className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+                            <button onClick={handleReassign} disabled={!selectedStaffId || reassigning} className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                                 {reassigning ? 'Assigning...' : 'Assign'}
                             </button>
                         </div>
@@ -580,7 +616,7 @@ export default function RoomsTab() {
                 </div>
             )}
 
-            {/* 🔄 REASSIGN GUEST MODAL */}
+            {/* 🔄 REASSIGN GUEST MODAL – visible to everyone who can use it */}
             {showReassignGuestModal && selectedRoom && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
@@ -595,69 +631,37 @@ export default function RoomsTab() {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Room Type</label>
-                                    <select
-                                        value={filterRoomType}
-                                        onChange={(e) => { setFilterRoomType(e.target.value); setSelectedNewRoom('') }}
-                                        className="w-full p-2 border rounded"
-                                    >
+                                    <select value={filterRoomType} onChange={(e) => { setFilterRoomType(e.target.value); setSelectedNewRoom('') }} className="w-full p-2 border rounded">
                                         <option value="">All Types</option>
-                                        {roomTypes.map(type => (
-                                            <option key={type} value={type}>{type}</option>
-                                        ))}
+                                        {roomTypes.map(type => (<option key={type} value={type}>{type}</option>))}
                                     </select>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Filter by Floor</label>
-                                    <select
-                                        value={filterFloor}
-                                        onChange={(e) => { setFilterFloor(e.target.value); setSelectedNewRoom('') }}
-                                        className="w-full p-2 border rounded"
-                                    >
+                                    <select value={filterFloor} onChange={(e) => { setFilterFloor(e.target.value); setSelectedNewRoom('') }} className="w-full p-2 border rounded">
                                         <option value="">All Floors</option>
-                                        {newRoomFloors.map(floor => (
-                                            <option key={floor} value={floor}>Floor {floor}</option>
-                                        ))}
+                                        {newRoomFloors.map(floor => (<option key={floor} value={floor}>Floor {floor}</option>))}
                                     </select>
                                 </div>
                             </div>
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">New Room</label>
-                                <select
-                                    value={selectedNewRoom}
-                                    onChange={(e) => setSelectedNewRoom(e.target.value)}
-                                    className="w-full p-2 border rounded"
-                                >
+                                <select value={selectedNewRoom} onChange={(e) => setSelectedNewRoom(e.target.value)} className="w-full p-2 border rounded">
                                     <option value="">-- Choose a room --</option>
-                                    {filteredNewRooms.map((room: any) => (
-                                        <option key={room.room_number} value={room.room_number}>
-                                            {room.room_number} – {room.room_type} (Floor {room.floor})
-                                        </option>
-                                    ))}
+                                    {filteredNewRooms.map((room: any) => (<option key={room.room_number} value={room.room_number}>{room.room_number} – {room.room_type} (Floor {room.floor})</option>))}
                                 </select>
-                                {filteredNewRooms.length === 0 && (
-                                    <p className="text-xs text-gray-500 mt-1">No rooms match the selected filters.</p>
-                                )}
+                                {filteredNewRooms.length === 0 && <p className="text-xs text-gray-500 mt-1">No rooms match the selected filters.</p>}
                             </div>
 
                             <label className="flex items-center gap-2 text-sm">
-                                <input
-                                    type="checkbox"
-                                    checked={markOooChecked}
-                                    onChange={(e) => setMarkOooChecked(e.target.checked)}
-                                    className="w-4 h-4"
-                                />
+                                <input type="checkbox" checked={markOooChecked} onChange={(e) => setMarkOooChecked(e.target.checked)} className="w-4 h-4" />
                                 Mark current room (Room {getRoomNumber(selectedRoom)}) as <strong>Out of Order</strong>
                             </label>
 
                             <div className="flex gap-3 pt-2">
-                                <button onClick={() => setShowReassignGuestModal(false)}
-                                    className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-                                <button
-                                    onClick={handleReassignGuest}
-                                    disabled={!selectedNewRoom || reassignGuestSubmitting}
-                                    className="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
-                                >
+                                <button onClick={() => setShowReassignGuestModal(false)} className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+                                <button onClick={handleReassignGuest} disabled={!selectedNewRoom || reassignGuestSubmitting} className="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">
                                     {reassignGuestSubmitting ? 'Moving...' : 'Move Guest'}
                                 </button>
                             </div>

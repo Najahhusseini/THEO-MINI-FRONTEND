@@ -1,25 +1,26 @@
 'use client'
 
+import { useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
 import ReservationManagerDashboard from '@/components/ReservationManagerDashboard'
 
 export default function ReservationManagerPage() {
-  const { staff } = useAuth()
+  const { staff, isLoading } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
+    if (isLoading) return
     if (!staff) {
       router.push('/login')
       return
     }
-    if (staff.role !== 'reservation_manager' && staff.role !== 'admin' && staff.role !== 'manager') {
+    if (!['admin', 'manager', 'reservation_manager'].includes(staff.role)) {
       router.push('/dashboard')
     }
-  }, [staff, router])
+  }, [staff, isLoading, router])
 
-  if (!staff) return null
+  if (isLoading || !staff) return null
 
-  return <ReservationManagerDashboard />
+  return <ReservationManagerDashboard standalone={true} />
 }

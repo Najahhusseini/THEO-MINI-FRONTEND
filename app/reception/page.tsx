@@ -7,10 +7,11 @@ import ReceptionDashboard from '@/components/ReceptionDashboard'
 import NotificationBell from '@/components/NotificationBell'
 
 export default function ReceptionPage() {
-  const { staff, logout } = useAuth()
+  const { staff, isLoading, logout } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
+    if (isLoading) return
     if (!staff) {
       router.push('/login')
       return
@@ -18,9 +19,15 @@ export default function ReceptionPage() {
     if (!['frontdesk', 'admin', 'manager', 'reception'].includes(staff.role)) {
       router.push('/dashboard')
     }
-  }, [staff, router])
+  }, [staff, isLoading, router])
 
-  if (!staff) return null
+  if (isLoading || !staff) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-lg text-gray-500">Loading reception desk…</div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

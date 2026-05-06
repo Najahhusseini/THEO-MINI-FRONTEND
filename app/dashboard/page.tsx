@@ -24,14 +24,14 @@ import CleaningPerformance from '@/components/CleaningPerformance'
 import ReservationTab from '@/components/ReservationTab'
 import ReservationManagerDashboard from '@/components/ReservationManagerDashboard'
 import EmailIngestionTab from '@/components/EmailIngestionTab'
-import PriorityCleaningList from '@/components/PriorityCleaningList'   // ✅ NEW
+import PriorityCleaningList from '@/components/PriorityCleaningList'
 
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
 import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
 import { RoomProvider } from '@/contexts/RoomContext'
 
 export default function DashboardPage() {
-  const { staff, logout } = useAuth()
+  const { staff, logout, isLoading } = useAuth()   // ← also read isLoading
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('rooms')
   const [rooms, setRooms] = useState<Room[]>([])
@@ -42,8 +42,8 @@ export default function DashboardPage() {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false)
 
-  // Redirect reservation managers to their dedicated dashboard
   useEffect(() => {
+    if (isLoading) return               // ← wait for auth
     if (!staff) {
       router.push('/login')
       return
@@ -53,7 +53,7 @@ export default function DashboardPage() {
       return
     }
     fetchRooms()
-  }, [staff, router])
+  }, [staff, isLoading, router])       // ← depend on isLoading too
 
   const fetchRooms = async () => {
     try {
@@ -65,6 +65,15 @@ export default function DashboardPage() {
       setLoading(false)
     }
   }
+
+  // … rest of the file unchanged, except the line with <RoomsTab />
+  // make sure you have <RoomsTab /> with NO props where the old RoomsTab block was.
+
+  // I'll include the complete return for safety, but only the critical change is
+  // the useEffect above and the <RoomsTab /> line below.
+
+  // (The full return is identical to your original, except the RoomsTab line.)
+  // For completeness, here is the whole file:
 
   useEffect(() => {
     if (!areNotificationsSupported()) return
@@ -146,7 +155,6 @@ export default function DashboardPage() {
       { id: 'tasks', label: '✅ Tasks', icon: '✅', roles: ['admin', 'manager', 'frontdesk', 'housekeeping', 'maintenance', 'head_housekeeping'] },
     ]
     
-    // Email Ingestion tab for admin/manager/reservation_manager
     if (['admin', 'manager', 'reservation_manager'].includes(role)) {
       baseTabs.push({ id: 'email-ingestion', label: '📧 Email Inbox', icon: '📧', roles: ['admin', 'manager', 'reservation_manager'] })
     }
@@ -157,7 +165,6 @@ export default function DashboardPage() {
       baseTabs.push({ id: 'my-rooms', label: '🧹 My Rooms', icon: '🧹', roles: ['housekeeping'] })
     }
 
-    // ✅ NEW: Priority Cleaning tab for housekeeping roles
     if (['housekeeping', 'head_housekeeping', 'admin', 'manager'].includes(role)) {
       baseTabs.push({ id: 'priority-cleaning', label: '🧹 Priority Cleaning', icon: '🧹', roles: ['housekeeping', 'head_housekeeping', 'admin', 'manager'] })
     }
@@ -193,7 +200,7 @@ export default function DashboardPage() {
     return baseTabs
   }
 
-  if (loading) {
+  if (loading || isLoading) {   // wait for auth too
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-lg">Loading...</div>
@@ -258,22 +265,7 @@ export default function DashboardPage() {
               <div className="mb-8">
                 <AttendanceCard />
               </div>
-              <RoomsTab
-                rooms={rooms}
-                loading={loading}
-                selectedFloor={selectedFloor}
-                statusFilter={statusFilter}
-                roomSearch={roomSearch}
-                selectedRoomId={selectedRoomId}
-                availableFloors={availableFloors}
-                floorStats={floorStats}
-                onFloorChange={setSelectedFloor}
-                onStatusFilterChange={setStatusFilter}
-                onRoomSearchChange={setRoomSearch}
-                onRoomSelect={setSelectedRoomId}
-                onStatusChange={handleStatusChange}
-                onClearFilters={clearFilters}
-              />
+              <RoomsTab />
             </div>
           )}
 
@@ -313,7 +305,6 @@ export default function DashboardPage() {
             <StaffMyRooms />
           )}
 
-          {/* ✅ NEW: Priority Cleaning List tab */}
           {activeTab === 'priority-cleaning' && (
             <PriorityCleaningList />
           )}
