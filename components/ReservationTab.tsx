@@ -8,7 +8,7 @@ import {
     updateReservation, 
     confirmReservation, 
     cancelReservation,
-    checkConflicts,
+    // checkConflicts – no longer needed when rooms are assigned manually
     CreateReservationData
 } from '@/lib/api'
 import toast from 'react-hot-toast'
@@ -39,17 +39,18 @@ export default function ReservationTab() {
     const [statusFilter, setStatusFilter] = useState<string>('all')
     const [submitting, setSubmitting] = useState(false)
     
-    // Form state
-    const [formData, setFormData] = useState<CreateReservationData>({
+    // Form state – removed room_type, added roomPreference
+    const [formData, setFormData] = useState({
         guest_name: '',
         guest_email: '',
         guest_phone: '',
         arrival_date: '',
         departure_date: '',
-        room_type: 'Standard',
+        // room_type is no longer used – we store room preference as text
         number_of_guests: 1,
         number_of_rooms: 1,
-        special_requests: ''
+        special_requests: '',
+        room_preference: '',   // new field for guest's room type preference
     })
 
     const isManager = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'frontdesk'
@@ -93,24 +94,8 @@ export default function ReservationTab() {
         })
     }
 
-    const checkForConflicts = async (): Promise<boolean> => {
-        try {
-            const result = await checkConflicts({
-                arrival_date: formData.arrival_date,
-                departure_date: formData.departure_date,
-                room_type: formData.room_type,
-                exclude_id: selectedReservation?.id
-            })
-            if (result.hasConflict) {
-                toast.error('⚠️ Conflict detected! This room type is already booked for these dates.')
-                return true
-            }
-            return false
-        } catch (error) {
-            console.error('Failed to check conflicts:', error)
-            return false
-        }
-    }
+    // Conflict check is no longer used – rooms are assigned manually without type restrictions
+    // const checkForConflicts = async (): Promise<boolean> => { ... }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -120,17 +105,30 @@ export default function ReservationTab() {
             return
         }
         
-        // Check for conflicts
-        const hasConflict = await checkForConflicts()
-        if (hasConflict) return
+        // Build the full special_requests string: include room preference if provided
+        let fullSpecialRequests = formData.special_requests || ''
+        if (formData.room_preference?.trim()) {
+            const prefix = fullSpecialRequests ? ' | ' : ''
+            fullSpecialRequests = `Room Preference: ${formData.room_preference.trim()}${prefix}${fullSpecialRequests}`
+        }
         
         setSubmitting(true)
         try {
             if (selectedReservation) {
-                await updateReservation(selectedReservation.id, formData)
+                // Update reservation – we no longer send room_type (send empty string or ignore)
+                await updateReservation(selectedReservation.id, {
+                    ...formData,
+                    room_type: '',               // clear any previous type
+                    special_requests: fullSpecialRequests,
+                })
                 toast.success('Reservation updated successfully')
             } else {
-                await createReservation(formData)
+                // Create new reservation – send room_type as empty string
+                await createReservation({
+                    ...formData,
+                    room_type: '',
+                    special_requests: fullSpecialRequests,
+                })
                 toast.success('Reservation created successfully')
             }
             setShowForm(false)
@@ -141,10 +139,10 @@ export default function ReservationTab() {
                 guest_phone: '',
                 arrival_date: '',
                 departure_date: '',
-                room_type: 'Standard',
                 number_of_guests: 1,
                 number_of_rooms: 1,
-                special_requests: ''
+                special_requests: '',
+                room_preference: '',
             })
             loadReservations()
         } catch (err: any) {
@@ -180,16 +178,23 @@ export default function ReservationTab() {
 
     const handleEdit = (reservation: Reservation) => {
         setSelectedReservation(reservation)
+        // Extract room preference from special_requests if it was stored with "Room Preference:" prefix
+        let roomPreference = ''
+        const specialRequests = reservation.special_requests || ''
+        const prefixMatch = specialRequests.match(/Room Preference:\s*(.*?)(\s*\||$)/)
+        if (prefixMatch) {
+            roomPreference = prefixMatch[1].trim()
+        }
         setFormData({
             guest_name: reservation.guest_name,
             guest_email: reservation.guest_email || '',
             guest_phone: reservation.guest_phone || '',
             arrival_date: reservation.arrival_date.split('T')[0],
             departure_date: reservation.departure_date.split('T')[0],
-            room_type: reservation.room_type,
             number_of_guests: reservation.number_of_guests,
             number_of_rooms: reservation.number_of_rooms,
-            special_requests: reservation.special_requests || ''
+            special_requests: specialRequests.replace(/Room Preference:.*?(\||$)/, '').trim(),
+            room_preference: roomPreference,
         })
         setShowForm(true)
     }
@@ -202,6 +207,13 @@ export default function ReservationTab() {
             case 'rejected': return 'bg-gray-100 text-gray-800'
             default: return 'bg-gray-100 text-gray-800'
         }
+    }
+
+    // Helper to extract room preference from stored special_requests for display
+    const getRoomPreferenceDisplay = (res: Reservation) => {
+        const sr = res.special_requests || ''
+        const match = sr.match(/Room Preference:\s*(.*?)(\s*\||$)/)
+        return match ? match[1].trim() : null
     }
 
     if (loading) return <div className="text-center py-12">Loading reservations...</div>
@@ -227,10 +239,10 @@ export default function ReservationTab() {
                                     guest_phone: '',
                                     arrival_date: '',
                                     departure_date: '',
-                                    room_type: 'Standard',
                                     number_of_guests: 1,
                                     number_of_rooms: 1,
-                                    special_requests: ''
+                                    special_requests: '',
+                                    room_preference: '',
                                 })
                                 setShowForm(true)
                             }}
@@ -284,57 +296,67 @@ export default function ReservationTab() {
                             No reservations found.
                         </div>
                     ) : (
-                        reservations.map(res => (
-                            <div
-                                key={res.id}
-                                className="bg-white rounded-lg shadow-md p-4 border-l-4 border-blue-500 hover:shadow-lg transition"
-                            >
-                                <div className="flex justify-between items-start mb-2">
-                                    <h3 className="font-bold text-lg">{res.guest_name}</h3>
-                                    <span className={`text-xs px-2 py-1 rounded-full ${getStatusBadge(res.status)}`}>
-                                        {res.status.replace('_', ' ').toUpperCase()}
-                                    </span>
-                                </div>
-                                <div className="text-sm text-gray-600 space-y-1">
-                                    <p>📅 {new Date(res.arrival_date).toLocaleDateString()} → {new Date(res.departure_date).toLocaleDateString()}</p>
-                                    <p>🏨 {res.room_type} • {res.number_of_guests} guests • {res.number_of_rooms} rooms</p>
-                                    {res.guest_email && <p>📧 {res.guest_email}</p>}
-                                    {res.special_requests && <p className="text-xs text-gray-500 italic">📝 {res.special_requests.substring(0, 60)}</p>}
-                                </div>
-                                <div className="flex gap-2 mt-3">
-                                    {isManager && res.status === 'pending_review' && (
-                                        <>
-                                            <button
-                                                onClick={() => handleConfirm(res.id)}
-                                                className="flex-1 bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition"
-                                            >
-                                                Confirm
-                                            </button>
-                                            <button
-                                                onClick={() => handleEdit(res)}
-                                                className="flex-1 bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition"
-                                            >
-                                                Edit
-                                            </button>
+                        reservations.map(res => {
+                            const roomPref = getRoomPreferenceDisplay(res)
+                            return (
+                                <div
+                                    key={res.id}
+                                    className="bg-white rounded-lg shadow-md p-4 border-l-4 border-blue-500 hover:shadow-lg transition"
+                                >
+                                    <div className="flex justify-between items-start mb-2">
+                                        <h3 className="font-bold text-lg">{res.guest_name}</h3>
+                                        <span className={`text-xs px-2 py-1 rounded-full ${getStatusBadge(res.status)}`}>
+                                            {res.status.replace('_', ' ').toUpperCase()}
+                                        </span>
+                                    </div>
+                                    <div className="text-sm text-gray-600 space-y-1">
+                                        <p>📅 {new Date(res.arrival_date).toLocaleDateString()} → {new Date(res.departure_date).toLocaleDateString()}</p>
+                                        <p>👥 {res.number_of_guests} guests • {res.number_of_rooms} rooms</p>
+                                        {roomPref && (
+                                            <p className="text-xs text-purple-700">🏨 Preference: {roomPref}</p>
+                                        )}
+                                        {res.guest_email && <p>📧 {res.guest_email}</p>}
+                                        {res.special_requests && !roomPref ? (
+                                            <p className="text-xs text-gray-500 italic">📝 {res.special_requests.substring(0, 60)}</p>
+                                        ) : res.special_requests && roomPref ? (
+                                            <p className="text-xs text-gray-500 italic">📝 {res.special_requests.replace(`Room Preference: ${roomPref}`, '').replace(/^\s*\|\s*/, '').substring(0, 60)}</p>
+                                        ) : null}
+                                    </div>
+                                    <div className="flex gap-2 mt-3">
+                                        {isManager && res.status === 'pending_review' && (
+                                            <>
+                                                <button
+                                                    onClick={() => handleConfirm(res.id)}
+                                                    className="flex-1 bg-green-600 text-white px-3 py-1 rounded text-sm hover:bg-green-700 transition"
+                                                >
+                                                    Confirm
+                                                </button>
+                                                <button
+                                                    onClick={() => handleEdit(res)}
+                                                    className="flex-1 bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition"
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    onClick={() => handleCancel(res.id)}
+                                                    className="flex-1 bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </>
+                                        )}
+                                        {isManager && res.status === 'confirmed' && (
                                             <button
                                                 onClick={() => handleCancel(res.id)}
-                                                className="flex-1 bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition"
+                                                className="w-full bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition"
                                             >
                                                 Cancel
                                             </button>
-                                        </>
-                                    )}
-                                    {isManager && res.status === 'confirmed' && (
-                                        <button
-                                            onClick={() => handleCancel(res.id)}
-                                            className="w-full bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700 transition"
-                                        >
-                                            Cancel
-                                        </button>
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))
+                            )
+                        })
                     )}
                 </div>
 
@@ -416,23 +438,7 @@ export default function ReservationTab() {
                                         </div>
                                     </div>
                                     
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div>
-                                            <label className="block text-sm font-medium mb-1">Room Type</label>
-                                            <select
-                                                name="room_type"
-                                                value={formData.room_type}
-                                                onChange={handleInputChange}
-                                                className="w-full p-2 border rounded-lg"
-                                            >
-                                                <option value="Standard">Standard</option>
-                                                <option value="Deluxe">Deluxe</option>
-                                                <option value="Suite">Suite</option>
-                                                <option value="Family">Family</option>
-                                                <option value="Executive">Executive</option>
-                                                <option value="Presidential">Presidential</option>
-                                            </select>
-                                        </div>
+                                    <div className="grid grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-sm font-medium mb-1">Guests</label>
                                             <input
@@ -456,15 +462,32 @@ export default function ReservationTab() {
                                             />
                                         </div>
                                     </div>
+
+                                    {/* NEW: Room Preference (free text) */}
+                                    <div>
+                                        <label className="block text-sm font-medium mb-1">Guest's Room Preference</label>
+                                        <input
+                                            type="text"
+                                            name="room_preference"
+                                            value={formData.room_preference}
+                                            onChange={handleInputChange}
+                                            placeholder="e.g., Deluxe, High floor, Quiet room"
+                                            className="w-full p-2 border rounded-lg"
+                                        />
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            This is only a note for reception staff. Actual room will be assigned manually.
+                                        </p>
+                                    </div>
                                     
                                     <div>
-                                        <label className="block text-sm font-medium mb-1">Special Requests</label>
+                                        <label className="block text-sm font-medium mb-1">Other Special Requests</label>
                                         <textarea
                                             name="special_requests"
                                             value={formData.special_requests}
                                             onChange={handleInputChange}
                                             rows={3}
                                             className="w-full p-2 border rounded-lg"
+                                            placeholder="Extra bed, late check-out, allergies, etc."
                                         />
                                     </div>
                                     

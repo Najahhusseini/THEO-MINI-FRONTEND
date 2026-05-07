@@ -20,6 +20,7 @@ interface Reservation {
 
 interface AssignedRoom {
   room_number: string
+  room_type: string         // ✅ NEW: actual room type from the assigned room
   stay_id: string
   checked_in: boolean
 }
@@ -55,6 +56,7 @@ export default function TodayArrivals() {
         if (stay.reservation_id) {
           map[stay.reservation_id] = {
             room_number: stay.room_number,
+            room_type: stay.room_type || '',   // ✅ store room type from stay
             stay_id: stay.id,
             checked_in: stay.status === 'checked_in'
           }
@@ -175,7 +177,7 @@ export default function TodayArrivals() {
                     {res.guest_name}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {res.room_type}
+                    {assigned?.room_type ? assigned.room_type : '—'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {format(parseISO(res.arrival_date), 'MMM d')} – {format(parseISO(res.departure_date), 'MMM d')}
