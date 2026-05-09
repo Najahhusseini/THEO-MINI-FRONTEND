@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { getStays, toggleKeyIssued } from '@/lib/api'
+import api from '@/lib/api'
 import toast from 'react-hot-toast'
 import { format, parseISO } from 'date-fns'
+import GuestFolioModal from './GuestFolioModal'
 
 interface Stay {
   id: string
@@ -17,6 +19,7 @@ interface Stay {
 export default function CheckedInGuestsPanel() {
   const [stays, setStays] = useState<Stay[]>([])
   const [loading, setLoading] = useState(true)
+  const [folioStayId, setFolioStayId] = useState<string | null>(null)   // which guest's folio to show
 
   const loadStays = async () => {
     try {
@@ -42,6 +45,17 @@ export default function CheckedInGuestsPanel() {
       loadStays()
     } catch (err: any) {
       toast.error('Failed to update key status')
+    }
+  }
+
+  const handleCheckOut = async (stayId: string) => {
+    if (!confirm('Check out this guest?')) return
+    try {
+      await api.post(`/reservations/stays/${stayId}/check-out`)
+      toast.success('Guest checked out')
+      loadStays()
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Check‑out failed')
     }
   }
 
@@ -74,9 +88,33 @@ export default function CheckedInGuestsPanel() {
                   Key issued
                 </label>
               </div>
+
+              {/* ✅ New action buttons */}
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => setFolioStayId(stay.id)}
+                  className="flex-1 px-3 py-1.5 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+                >
+                  📋 Folio
+                </button>
+                <button
+                  onClick={() => handleCheckOut(stay.id)}
+                  className="flex-1 px-3 py-1.5 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
+                >
+                  🏁 Check‑Out
+                </button>
+              </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* ✅ Folio Modal */}
+      {folioStayId && (
+        <GuestFolioModal
+          stayId={folioStayId}
+          onClose={() => setFolioStayId(null)}
+        />
       )}
     </div>
   )

@@ -23,8 +23,9 @@ import EmailIngestionTab from '@/components/EmailIngestionTab'
 import AdminRoomsOverview from '@/components/AdminRoomsOverview'
 import TodayArrivals from '@/components/TodayArrivals'
 import NotificationBell from '@/components/NotificationBell'
+import GuestProfilesTab from '@/components/GuestProfilesTab'
 
-type ViewMode = 'table' | 'threePane' | 'tape' | 'email' | 'roomsOverview' | 'todaysArrivals' | 'waitlist'
+type ViewMode = 'table' | 'threePane' | 'tape' | 'email' | 'roomsOverview' | 'todaysArrivals' | 'waitlist' | 'guests'
 type SortField = 'guest_name' | 'arrival_date' | 'departure_date' | 'room_type' | 'status' | 'number_of_guests' | 'number_of_rooms' | 'created_at'
 type SortOrder = 'asc' | 'desc'
 
@@ -81,7 +82,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
     const [confirmNow, setConfirmNow] = useState(false)
     const [submitting, setSubmitting] = useState(false)
 
-    // Room assignment modal state
     const [showAssignRoomModal, setShowAssignRoomModal] = useState(false)
     const [availableRooms, setAvailableRooms] = useState<any[]>([])
     const [selectedRoomNumber, setSelectedRoomNumber] = useState('')
@@ -89,7 +89,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
     const [filterRoomType, setFilterRoomType] = useState('')
     const [filterFloor, setFilterFloor] = useState('')
 
-    // ── Draft Email modal state ──
     const [showDraftModal, setShowDraftModal] = useState(false)
     const [draftReservation, setDraftReservation] = useState<Reservation | null>(null)
     const [draftTemplate, setDraftTemplate] = useState<'change_dates' | 'confirm_availability' | 'custom' | null>(null)
@@ -192,7 +191,6 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
         setFormData({ ...formData, [e.target.name]: e.target.value })
     }
 
-    // ✅ FIXED: Convert number fields to integers before sending
     const submitReservation = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!formData.guest_name || !formData.arrival_date || !formData.departure_date) {
@@ -417,7 +415,8 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                 <button onClick={() => setViewMode('email')} className={`px-4 py-2 transition ${viewMode === 'email' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📧 Email Inbox</button>
                                 <button onClick={() => setViewMode('roomsOverview')} className={`px-4 py-2 transition ${viewMode === 'roomsOverview' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>🏨 Rooms Overview</button>
                                 <button onClick={() => setViewMode('todaysArrivals')} className={`px-4 py-2 transition ${viewMode === 'todaysArrivals' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📋 Today's Arrivals</button>
-                                <button onClick={() => setViewMode('waitlist')} className={`px-4 py-2 rounded-r-lg transition ${viewMode === 'waitlist' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>⏳ Waitlist</button>
+                                <button onClick={() => setViewMode('waitlist')} className={`px-4 py-2 transition ${viewMode === 'waitlist' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>⏳ Waitlist</button>
+                                <button onClick={() => setViewMode('guests')} className={`px-4 py-2 rounded-r-lg transition ${viewMode === 'guests' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>👥 Guests</button>
                             </div>
                             {['admin', 'manager', 'reservation_manager'].includes(staff?.role || '') && (
                                 <button onClick={sendPreArrivalEmails} className="px-3 py-1 bg-purple-600 text-white rounded-lg shadow hover:bg-purple-700">✉️ Send Pre‑arrival Emails</button>
@@ -439,7 +438,8 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                 <button onClick={() => setViewMode('email')} className={`px-4 py-2 transition ${viewMode === 'email' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📧 Email Inbox</button>
                                 <button onClick={() => setViewMode('roomsOverview')} className={`px-4 py-2 transition ${viewMode === 'roomsOverview' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>🏨 Rooms Overview</button>
                                 <button onClick={() => setViewMode('todaysArrivals')} className={`px-4 py-2 transition ${viewMode === 'todaysArrivals' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>📋 Today's Arrivals</button>
-                                <button onClick={() => setViewMode('waitlist')} className={`px-4 py-2 rounded-r-lg transition ${viewMode === 'waitlist' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>⏳ Waitlist</button>
+                                <button onClick={() => setViewMode('waitlist')} className={`px-4 py-2 transition ${viewMode === 'waitlist' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>⏳ Waitlist</button>
+                                <button onClick={() => setViewMode('guests')} className={`px-4 py-2 rounded-r-lg transition ${viewMode === 'guests' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'}`}>👥 Guests</button>
                             </div>
                             {['admin', 'manager', 'reservation_manager'].includes(staff?.role || '') && (
                                 <button onClick={sendPreArrivalEmails} className="px-3 py-1 bg-purple-600 text-white rounded-lg shadow hover:bg-purple-700">✉️ Send Pre‑arrival Emails</button>
@@ -559,6 +559,8 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                 {viewMode === 'email' && <EmailIngestionTab />}
                 {viewMode === 'roomsOverview' && <AdminRoomsOverview />}
                 {viewMode === 'todaysArrivals' && <TodayArrivals />}
+                {viewMode === 'guests' && <GuestProfilesTab />}    {/* ✅ NEW */}
+
                 {viewMode === 'waitlist' && (
                     <div className="bg-white rounded-lg shadow p-6">
                         <h2 className="text-2xl font-bold mb-4">⏳ Waitlist & Date Change Requests</h2>

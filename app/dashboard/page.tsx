@@ -25,8 +25,8 @@ import ReservationTab from '@/components/ReservationTab'
 import ReservationManagerDashboard from '@/components/ReservationManagerDashboard'
 import EmailIngestionTab from '@/components/EmailIngestionTab'
 import PriorityCleaningList from '@/components/PriorityCleaningList'
-import AdminStaffManager from '@/components/AdminStaffManager'     // ✅ NEW
-import GuestsTab from '@/components/GuestsTab'                   // ✅ NEW
+import AdminStaffManager from '@/components/AdminStaffManager'
+import GuestProfilesTab from '@/components/GuestProfilesTab'   // ✅ UPDATED
 
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
 import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
@@ -186,9 +186,14 @@ export default function DashboardPage() {
     
     if (role === 'admin' || role === 'manager') {
       baseTabs.push({ id: 'staff', label: '👥 Staff', icon: '👥', roles: ['admin', 'manager'] })
-      baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['admin', 'manager', 'frontdesk'] })   // ✅ NEW
+      baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['admin', 'manager', 'frontdesk', 'reservation_manager'] })   // ✅ updated roles
       baseTabs.push({ id: 'reports', label: '📊 Reports', icon: '📊', roles: ['admin', 'manager'] })
       baseTabs.push({ id: 'reservations-admin', label: '📅 Reservations (Admin)', icon: '📅', roles: ['admin', 'manager'] })
+    }
+
+    // Also give reservation_manager direct access to the Guests tab (even if they don't see the other admin tabs)
+    if (role === 'reservation_manager') {
+      baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['reservation_manager'] })
     }
     
     return baseTabs
@@ -323,7 +328,7 @@ export default function DashboardPage() {
             <CleaningPerformance />
           )}
 
-          {/* ✅ Updated Staff tab – now includes both attendance and staff management */}
+          {/* ✅ Updated Staff tab */}
           {activeTab === 'staff' && (staff?.role === 'admin' || staff?.role === 'manager') && (
             <div className="space-y-8">
               <StaffAttendanceTable />
@@ -331,9 +336,9 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ✅ New Guests tab */}
-          {activeTab === 'guests' && (['admin', 'manager', 'frontdesk'].includes(staff?.role || '')) && (
-            <GuestsTab />
+          {/* ✅ New Guest Profiles tab – now uses the card‑based component */}
+          {activeTab === 'guests' && (['admin', 'manager', 'frontdesk', 'reservation_manager'].includes(staff?.role || '')) && (
+            <GuestProfilesTab />
           )}
 
           {activeTab === 'reports' && (staff?.role === 'admin' || staff?.role === 'manager') && (
