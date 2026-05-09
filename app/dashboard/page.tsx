@@ -25,13 +25,15 @@ import ReservationTab from '@/components/ReservationTab'
 import ReservationManagerDashboard from '@/components/ReservationManagerDashboard'
 import EmailIngestionTab from '@/components/EmailIngestionTab'
 import PriorityCleaningList from '@/components/PriorityCleaningList'
+import AdminStaffManager from '@/components/AdminStaffManager'     // ✅ NEW
+import GuestsTab from '@/components/GuestsTab'                   // ✅ NEW
 
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
 import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
 import { RoomProvider } from '@/contexts/RoomContext'
 
 export default function DashboardPage() {
-  const { staff, logout, isLoading } = useAuth()   // ← also read isLoading
+  const { staff, logout, isLoading } = useAuth()
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('rooms')
   const [rooms, setRooms] = useState<Room[]>([])
@@ -43,7 +45,7 @@ export default function DashboardPage() {
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false)
 
   useEffect(() => {
-    if (isLoading) return               // ← wait for auth
+    if (isLoading) return
     if (!staff) {
       router.push('/login')
       return
@@ -53,7 +55,7 @@ export default function DashboardPage() {
       return
     }
     fetchRooms()
-  }, [staff, isLoading, router])       // ← depend on isLoading too
+  }, [staff, isLoading, router])
 
   const fetchRooms = async () => {
     try {
@@ -65,15 +67,6 @@ export default function DashboardPage() {
       setLoading(false)
     }
   }
-
-  // … rest of the file unchanged, except the line with <RoomsTab />
-  // make sure you have <RoomsTab /> with NO props where the old RoomsTab block was.
-
-  // I'll include the complete return for safety, but only the critical change is
-  // the useEffect above and the <RoomsTab /> line below.
-
-  // (The full return is identical to your original, except the RoomsTab line.)
-  // For completeness, here is the whole file:
 
   useEffect(() => {
     if (!areNotificationsSupported()) return
@@ -193,6 +186,7 @@ export default function DashboardPage() {
     
     if (role === 'admin' || role === 'manager') {
       baseTabs.push({ id: 'staff', label: '👥 Staff', icon: '👥', roles: ['admin', 'manager'] })
+      baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['admin', 'manager', 'frontdesk'] })   // ✅ NEW
       baseTabs.push({ id: 'reports', label: '📊 Reports', icon: '📊', roles: ['admin', 'manager'] })
       baseTabs.push({ id: 'reservations-admin', label: '📅 Reservations (Admin)', icon: '📅', roles: ['admin', 'manager'] })
     }
@@ -200,7 +194,7 @@ export default function DashboardPage() {
     return baseTabs
   }
 
-  if (loading || isLoading) {   // wait for auth too
+  if (loading || isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-lg">Loading...</div>
@@ -329,8 +323,17 @@ export default function DashboardPage() {
             <CleaningPerformance />
           )}
 
+          {/* ✅ Updated Staff tab – now includes both attendance and staff management */}
           {activeTab === 'staff' && (staff?.role === 'admin' || staff?.role === 'manager') && (
-            <StaffAttendanceTable />
+            <div className="space-y-8">
+              <StaffAttendanceTable />
+              <AdminStaffManager />
+            </div>
+          )}
+
+          {/* ✅ New Guests tab */}
+          {activeTab === 'guests' && (['admin', 'manager', 'frontdesk'].includes(staff?.role || '')) && (
+            <GuestsTab />
           )}
 
           {activeTab === 'reports' && (staff?.role === 'admin' || staff?.role === 'manager') && (
