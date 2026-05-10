@@ -526,9 +526,9 @@ export const getReceptionStats = async () => {
   return { arrivingToday, checkedIn, departingToday, roomsReady, vacantDirty }
 }
 
-// Toggle key issued status for a checked‑in stay
+// ✅ FIXED: toggle key issued – sends 'key_issued' as the backend expects
 export const toggleKeyIssued = async (stayId: string, keyIssued: boolean) => {
-  const response = await api.patch(`/reservations/stays/${stayId}/key`, { keyIssued })
+  const response = await api.patch(`/reservations/stays/${stayId}/key`, { key_issued: keyIssued })
   return response.data
 }
 

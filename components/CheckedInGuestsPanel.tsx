@@ -19,7 +19,7 @@ interface Stay {
 export default function CheckedInGuestsPanel() {
   const [stays, setStays] = useState<Stay[]>([])
   const [loading, setLoading] = useState(true)
-  const [folioStayId, setFolioStayId] = useState<string | null>(null)   // which guest's folio to show
+  const [folioStayId, setFolioStayId] = useState<string | null>(null)
 
   const loadStays = async () => {
     try {
@@ -28,27 +28,38 @@ export default function CheckedInGuestsPanel() {
       setStays(checkedIn)
     } catch (err) {
       toast.error('Failed to load stays')
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }
 
   useEffect(() => {
     loadStays()
     const interval = setInterval(loadStays, 15000)
-    return () => clearInterval(interval)
+    const handler = () => loadStays()
+    window.addEventListener('guest-checked-in', handler)
+    window.addEventListener('refresh-rooms', handler)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('guest-checked-in', handler)
+      window.removeEventListener('refresh-rooms', handler)
+    }
   }, [])
 
   const handleToggleKey = async (stayId: string, current: boolean) => {
     try {
       await toggleKeyIssued(stayId, !current)
+      toast.success(!current ? 'Key issued' : 'Key returned')
       loadStays()
     } catch (err: any) {
-      toast.error('Failed to update key status')
+      toast.error(err.response?.data?.error || 'Failed to update key status')
     }
   }
 
   const handleCheckOut = async (stayId: string) => {
+    const stay = stays.find(s => s.id === stayId)
+    if (stay && stay.key_issued) {
+      toast.error('Please return the key before checkout')
+      return
+    }
     if (!confirm('Check out this guest?')) return
     try {
       await api.post(`/reservations/stays/${stayId}/check-out`)
@@ -74,48 +85,22 @@ export default function CheckedInGuestsPanel() {
                 <div>
                   <div className="font-semibold text-gray-800">{stay.guest_name}</div>
                   <div className="text-sm text-gray-600">Room {stay.room_number}</div>
-                  <div className="text-xs text-gray-500 mt-1">
-                    Departure: {stay.departure_date ? format(parseISO(stay.departure_date), 'MMM d, yyyy') : 'N/A'}
-                  </div>
+                  <div className="text-xs text-gray-500 mt-1">Departure: {stay.departure_date ? format(parseISO(stay.departure_date), 'MMM d, yyyy') : 'N/A'}</div>
                 </div>
                 <label className="flex items-center gap-1 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={stay.key_issued || false}
-                    onChange={() => handleToggleKey(stay.id, stay.key_issued)}
-                    className="w-4 h-4"
-                  />
-                  Key issued
+                  <input type="checkbox" checked={stay.key_issued || false} onChange={() => handleToggleKey(stay.id, stay.key_issued)} className="w-4 h-4" />
+                  {stay.key_issued ? 'Key issued' : 'Key returned'}
                 </label>
               </div>
-
-              {/* ✅ New action buttons */}
               <div className="flex gap-2 mt-3">
-                <button
-                  onClick={() => setFolioStayId(stay.id)}
-                  className="flex-1 px-3 py-1.5 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
-                >
-                  📋 Folio
-                </button>
-                <button
-                  onClick={() => handleCheckOut(stay.id)}
-                  className="flex-1 px-3 py-1.5 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
-                >
-                  🏁 Check‑Out
-                </button>
+                <button onClick={() => setFolioStayId(stay.id)} className="flex-1 px-3 py-1.5 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200">📋 Folio</button>
+                <button onClick={() => handleCheckOut(stay.id)} disabled={stay.key_issued} className={`flex-1 px-3 py-1.5 text-sm rounded ${stay.key_issued ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}>🏁 Check‑Out</button>
               </div>
             </div>
           ))}
         </div>
       )}
-
-      {/* ✅ Folio Modal */}
-      {folioStayId && (
-        <GuestFolioModal
-          stayId={folioStayId}
-          onClose={() => setFolioStayId(null)}
-        />
-      )}
+      {folioStayId && <GuestFolioModal stayId={folioStayId} onClose={() => setFolioStayId(null)} />}
     </div>
   )
 }

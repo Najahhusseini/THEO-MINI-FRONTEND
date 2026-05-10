@@ -15,6 +15,7 @@ import {
   setRoomOutOfOrder
 } from '@/lib/api'
 import api from '@/lib/api'
+import StickyNoteBadge from './StickyNoteBadge'          // ✅ NEW
 
 interface Room {
     id: string
@@ -28,6 +29,7 @@ interface Room {
     out_of_order?: boolean
     out_of_order_reason?: string
     assigned_cleaner_id?: string
+    notes?: string[] | null                           // ✅ NEW
 }
 
 type OccupancyInfo = {
@@ -79,6 +81,17 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
     const getCleaningStatus = (room: Room) => room.cleaning_status || room.status || 'dirty'
 
     const floors = [...new Set(rooms.map(r => getFloor(r)))].sort((a, b) => a - b)
+
+    // ✅ Save notes handler (head only)
+    const handleSaveRoomNotes = async (roomId: string, notes: string[]) => {
+        try {
+            await api.patch(`/rooms/${roomId}/notes`, { notes })
+            toast.success('Notes updated')
+            refreshRooms()   // immediate refresh so cards show the notes
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed to save notes')
+        }
+    }
 
     useEffect(() => {
         if (!isHead) return
@@ -438,7 +451,16 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                                     <div className="text-sm text-gray-600 mt-0.5">{getRoomType(room)}</div>
                                     <div className="text-xs text-gray-500">Floor {getFloor(room)}</div>
                                 </div>
-                                <div className="text-3xl">{getStatusIcon(room)}</div>
+                                <div className="flex items-center gap-2">
+                                    {/* ✅ Sticky notes only for head */}
+                                    {isHead && (
+                                        <StickyNoteBadge
+                                            notes={room.notes || null}
+                                            onSave={async (notes) => await handleSaveRoomNotes(room.id, notes)}
+                                        />
+                                    )}
+                                    <div className="text-3xl">{getStatusIcon(room)}</div>
+                                </div>
                             </div>
                             <div className="mt-3 flex flex-wrap items-center gap-2">
                                 <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-white/70">
@@ -488,6 +510,17 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                         </div>
 
                         <div className="p-6 space-y-4">
+                            {/* ✅ Notes section for head */}
+                            {isHead && (
+                                <div className="flex items-center gap-2">
+                                    <span className="font-semibold text-gray-600">Notes:</span>
+                                    <StickyNoteBadge
+                                        notes={selectedRoom.notes || null}
+                                        onSave={async (notes) => await handleSaveRoomNotes(selectedRoom.id, notes)}
+                                    />
+                                </div>
+                            )}
+
                             <div className="flex justify-between items-center border-b pb-2">
                                 <span className="font-semibold text-gray-600">Cleaning Status:</span>
                                 <span className={`px-3 py-1 rounded-full text-sm font-bold ${selectedRoom.out_of_order ? 'bg-gray-200 text-gray-800' : 'bg-blue-100 text-blue-800'}`}>

@@ -16,6 +16,7 @@ import {
 import api from '@/lib/api'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
+import StickyNoteBadge from './StickyNoteBadge'                   // ✅ NEW
 
 interface Room {
   id: string
@@ -24,6 +25,8 @@ interface Room {
   room_type: string
   out_of_order: boolean
   cleaning_status?: string
+  price_per_night?: number | null
+  notes?: string[] | null                                    // ✅ NEW
 }
 
 type OccupancyInfo = {
@@ -43,7 +46,6 @@ interface TodayGuest {
   status: string
 }
 
-// ── colour maps ──────────────────────────────────
 const roomTypeColors: Record<string, string> = {
   'Standard':    'bg-blue-400',
   'Deluxe':      'bg-amber-400',
@@ -67,7 +69,6 @@ const cleaningBorder: Record<string, string> = {
   'inspected':'border-l-blue-500',
   'awaiting': 'border-l-purple-500',
 }
-// ─────────────────────────────────────────────────
 
 export default function AdminRoomsOverview() {
   const { staff } = useAuth()
@@ -87,7 +88,6 @@ export default function AdminRoomsOverview() {
   const [assigning, setAssigning] = useState(false)
   const [todayGuests, setTodayGuests] = useState<TodayGuest[]>([])
 
-  // ── Reassign Guest state ──
   const [showReassignGuestModal, setShowReassignGuestModal] = useState(false)
   const [availableNewRooms, setAvailableNewRooms] = useState<any[]>([])
   const [selectedNewRoom, setSelectedNewRoom] = useState('')
@@ -96,15 +96,34 @@ export default function AdminRoomsOverview() {
   const [filterRoomType, setFilterRoomType] = useState('')
   const [filterFloor, setFilterFloor] = useState('')
 
+  // Price editing state
+  const [editingPrice, setEditingPrice] = useState(false)
+  const [newPrice, setNewPrice] = useState('')
+  const [savingPrice, setSavingPrice] = useState(false)
+
   const canCheckIn = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'reservation_manager' || staff?.role === 'frontdesk'
   const canReassignGuest = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'head_housekeeping' || staff?.role === 'reservation_manager'
+  const canEditPrice = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'reservation_manager' || staff?.role === 'frontdesk'
+
+  // ✅ Save room notes handler
+  const handleSaveRoomNotes = async (roomId: string, notes: string[]) => {
+    try {
+      await api.patch(`/rooms/${roomId}/notes`, { notes })
+      toast.success('Notes updated')
+      loadData()   // refresh to show notes immediately
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to save notes')
+    }
+  }
 
   const loadData = useCallback(async () => {
     try {
       const [roomsData, staysData] = await Promise.all([getRoomsWithCleaning(), getStays()])
       const mappedRooms: Room[] = (roomsData || []).map((r: any) => ({
         id: r.id, room_number: r.room_number, floor: r.floor, room_type: r.room_type,
-        out_of_order: r.out_of_order || false, cleaning_status: r.cleaning_status || r.status || 'dirty'
+        out_of_order: r.out_of_order || false, cleaning_status: r.cleaning_status || r.status || 'dirty',
+        price_per_night: r.price_per_night || null,
+        notes: r.notes || null,                       // ✅ include notes
       }))
       setRooms(mappedRooms)
 
@@ -263,6 +282,33 @@ export default function AdminRoomsOverview() {
   const roomTypes = [...new Set(availableNewRooms.map((r: any) => r.room_type).filter(Boolean))].sort()
   const newRoomFloors = [...new Set(availableNewRooms.map((r: any) => r.floor).filter(Boolean))].sort((a: number, b: number) => a - b)
 
+  // ── Price editing handlers ──
+  const openPriceEdit = (room: Room) => {
+    setSelectedRoom(room)
+    setNewPrice(room.price_per_night != null ? String(room.price_per_night) : '')
+    setEditingPrice(true)
+  }
+
+  const savePrice = async () => {
+    if (!selectedRoom) return
+    const price = parseFloat(newPrice)
+    if (isNaN(price) || price < 0) {
+      toast.error('Please enter a valid price')
+      return
+    }
+    setSavingPrice(true)
+    try {
+      await api.patch(`/rooms/${selectedRoom.id}/price`, { price_per_night: price })
+      toast.success(`Price updated for Room ${selectedRoom.room_number}`)
+      setEditingPrice(false)
+      loadData()
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to update price')
+    } finally {
+      setSavingPrice(false)
+    }
+  }
+
   const getOccupancyBadge = (info: OccupancyInfo) => {
     switch (info.status) {
       case 'occupied': return <span className="px-2 py-0.5 text-sm rounded-full bg-purple-100 text-purple-800 font-medium">Occupied</span>
@@ -312,8 +358,18 @@ export default function AdminRoomsOverview() {
                     <span className="text-sm text-gray-600">{room.room_type}</span>
                   </div>
                   <div className="text-xs text-gray-500">Floor {room.floor}</div>
+                  <div className="text-sm font-semibold text-gray-700 mt-1">
+                    {room.price_per_night != null ? `$${Number(room.price_per_night).toFixed(2)} / night` : 'No price set'}
+                  </div>
                 </div>
                 <div className="text-3xl">{room.out_of_order ? '🚫' : '🏨'}</div>
+              </div>
+              {/* ✅ Sticky note badge on card */}
+              <div className="mt-2 flex items-center gap-2">
+                <StickyNoteBadge
+                  notes={(room as any).notes || null}
+                  onSave={async (notes) => await handleSaveRoomNotes(room.id, notes)}
+                />
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {getOccupancyBadge(occupancy)}
@@ -364,6 +420,60 @@ export default function AdminRoomsOverview() {
                 }`}>{(selectedRoom.cleaning_status || 'dirty').toUpperCase()}</span>
               </div>
 
+              {/* ✅ Sticky notes in detail modal */}
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-gray-600">Notes:</span>
+                <StickyNoteBadge
+                  notes={(selectedRoom as any).notes || null}
+                  onSave={async (notes) => await handleSaveRoomNotes(selectedRoom.id, notes)}
+                />
+              </div>
+
+              {/* Price display and edit */}
+              <div className="flex justify-between items-center">
+                <div>
+                  <span className="font-semibold text-gray-600">Price per night: </span>
+                  <span className="text-lg font-bold">
+                    {selectedRoom.price_per_night != null ? `$${Number(selectedRoom.price_per_night).toFixed(2)}` : 'Not set'}
+                  </span>
+                </div>
+                {canEditPrice && (
+                  <button
+                    onClick={() => openPriceEdit(selectedRoom)}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    Edit
+                  </button>
+                )}
+              </div>
+
+              {/* Inline price edit */}
+              {editingPrice && selectedRoom?.id === selectedRoom.id && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newPrice}
+                    onChange={(e) => setNewPrice(e.target.value)}
+                    placeholder="Enter price"
+                    className="flex-1 p-2 border rounded"
+                  />
+                  <button
+                    onClick={savePrice}
+                    disabled={savingPrice}
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {savingPrice ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => setEditingPrice(false)}
+                    className="px-3 py-1.5 border rounded text-sm hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
               {occupancyMap[selectedRoom.room_number] && (
                 <div className="bg-gray-50 p-3 rounded-lg border">
                   <p className="text-sm font-semibold text-gray-700">Occupancy</p>
@@ -382,7 +492,7 @@ export default function AdminRoomsOverview() {
                 </div>
               )}
 
-              {/* 🔄 REASSIGN GUEST – same as in housekeeping */}
+              {/* 🔄 REASSIGN GUEST */}
               {!selectedRoom.out_of_order &&
                (occupancyMap[selectedRoom.room_number]?.status === 'occupied' ||
                 occupancyMap[selectedRoom.room_number]?.status === 'arriving_today') &&
