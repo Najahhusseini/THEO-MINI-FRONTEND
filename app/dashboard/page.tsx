@@ -26,7 +26,7 @@ import ReservationManagerDashboard from '@/components/ReservationManagerDashboar
 import EmailIngestionTab from '@/components/EmailIngestionTab'
 import PriorityCleaningList from '@/components/PriorityCleaningList'
 import AdminStaffManager from '@/components/AdminStaffManager'
-import GuestProfilesTab from '@/components/GuestProfilesTab'   // ✅ UPDATED
+import GuestProfilesTab from '@/components/GuestProfilesTab'
 
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
 import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
@@ -186,15 +186,33 @@ export default function DashboardPage() {
     
     if (role === 'admin' || role === 'manager') {
       baseTabs.push({ id: 'staff', label: '👥 Staff', icon: '👥', roles: ['admin', 'manager'] })
-      baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['admin', 'manager', 'frontdesk', 'reservation_manager'] })   // ✅ updated roles
+      baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['admin', 'manager', 'frontdesk', 'reservation_manager'] })
       baseTabs.push({ id: 'reports', label: '📊 Reports', icon: '📊', roles: ['admin', 'manager'] })
       baseTabs.push({ id: 'reservations-admin', label: '📅 Reservations (Admin)', icon: '📅', roles: ['admin', 'manager'] })
     }
 
-    // Also give reservation_manager direct access to the Guests tab (even if they don't see the other admin tabs)
     if (role === 'reservation_manager') {
       baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['reservation_manager'] })
     }
+
+    // ✅ Amenity‑based tabs
+    const amenities: string[] = staff?.amenities || []
+    if (amenities.includes('Restaurant')) {
+      baseTabs.push({ id: 'restaurant', label: '🍽️ Restaurant', icon: '🍽️', roles: ['admin', 'manager', 'frontdesk'] })
+    }
+    if (amenities.includes('Bar')) {
+      baseTabs.push({ id: 'bar', label: '🍸 Bar', icon: '🍸', roles: ['admin', 'manager', 'frontdesk'] })
+    }
+    if (amenities.includes('Room Service')) {
+      baseTabs.push({ id: 'room-service', label: '🛎️ Room Service', icon: '🛎️', roles: ['admin', 'manager', 'frontdesk'] })
+    }
+    if (amenities.includes('Pool')) {
+      baseTabs.push({ id: 'pool', label: '🏊 Pool', icon: '🏊', roles: ['admin', 'manager', 'frontdesk'] })
+    }
+    if (amenities.includes('Spa')) {
+      baseTabs.push({ id: 'spa', label: '💆 Spa', icon: '💆', roles: ['admin', 'manager', 'frontdesk'] })
+    }
+    // … add any other amenity you need
     
     return baseTabs
   }
@@ -336,7 +354,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ✅ New Guest Profiles tab – now uses the card‑based component */}
+          {/* ✅ New Guest Profiles tab */}
           {activeTab === 'guests' && (['admin', 'manager', 'frontdesk', 'reservation_manager'].includes(staff?.role || '')) && (
             <GuestProfilesTab />
           )}
@@ -344,6 +362,33 @@ export default function DashboardPage() {
           {activeTab === 'reports' && (staff?.role === 'admin' || staff?.role === 'manager') && (
             <div className="text-center py-12 bg-white rounded-lg border">
               <p className="text-gray-500">Reports & analytics coming soon...</p>
+            </div>
+          )}
+
+          {/* ✅ Amenity placeholder tabs */}
+          {activeTab === 'restaurant' && (
+            <div className="text-center py-12 bg-white rounded-lg border">
+              <p className="text-gray-500">🍽️ Restaurant module coming soon</p>
+            </div>
+          )}
+          {activeTab === 'bar' && (
+            <div className="text-center py-12 bg-white rounded-lg border">
+              <p className="text-gray-500">🍸 Bar module coming soon</p>
+            </div>
+          )}
+          {activeTab === 'room-service' && (
+            <div className="text-center py-12 bg-white rounded-lg border">
+              <p className="text-gray-500">🛎️ Room Service module coming soon</p>
+            </div>
+          )}
+          {activeTab === 'pool' && (
+            <div className="text-center py-12 bg-white rounded-lg border">
+              <p className="text-gray-500">🏊 Pool module coming soon</p>
+            </div>
+          )}
+          {activeTab === 'spa' && (
+            <div className="text-center py-12 bg-white rounded-lg border">
+              <p className="text-gray-500">💆 Spa module coming soon</p>
             </div>
           )}
         </main>

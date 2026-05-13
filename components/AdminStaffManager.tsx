@@ -37,9 +37,9 @@ export default function AdminStaffManager() {
       const res = await api.get('/admin-staff')
       setStaffList(res.data.staff)
       setMaxStaff(res.data.maxStaff)
-      setLoading(false)
     } catch (err) {
       toast.error('Failed to load staff')
+    } finally {
       setLoading(false)
     }
   }
@@ -105,7 +105,6 @@ export default function AdminStaffManager() {
         </button>
       </div>
 
-      {/* Staff list table */}
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50">
@@ -159,52 +158,31 @@ export default function AdminStaffManager() {
             <h3 className="text-lg font-bold mb-4">Add New Staff</h3>
             <form onSubmit={handleAdd} className="space-y-3">
               <input
-                type="text"
-                placeholder="Full Name *"
-                value={form.name}
+                type="text" placeholder="Full Name *" value={form.name}
                 onChange={e => setForm({ ...form, name: e.target.value })}
-                required
-                className="w-full p-2 border rounded"
+                required className="w-full p-2 border rounded"
               />
               <input
-                type="email"
-                placeholder="Email *"
-                value={form.email}
+                type="email" placeholder="Email *" value={form.email}
                 onChange={e => setForm({ ...form, email: e.target.value })}
-                required
-                className="w-full p-2 border rounded"
+                required className="w-full p-2 border rounded"
               />
               <input
-                type="password"
-                placeholder="Password *"
-                value={form.password}
+                type="password" placeholder="Password *" value={form.password}
                 onChange={e => setForm({ ...form, password: e.target.value })}
-                required
-                className="w-full p-2 border rounded"
+                required className="w-full p-2 border rounded"
               />
-              <select
-                value={form.role}
-                onChange={e => setForm({ ...form, role: e.target.value })}
-                className="w-full p-2 border rounded"
-              >
-                {ALL_ROLES.map(r => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
+              <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value })} className="w-full p-2 border rounded">
+                {ALL_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
               <input
-                type="text"
-                placeholder="Phone (optional)"
-                value={form.phone}
+                type="text" placeholder="Phone (optional)" value={form.phone}
                 onChange={e => setForm({ ...form, phone: e.target.value })}
                 className="w-full p-2 border rounded"
               />
               <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-2 border rounded hover:bg-gray-50">
-                  Cancel
-                </button>
-                <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                  Save
-                </button>
+                <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-2 border rounded hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Save</button>
               </div>
             </form>
           </div>
@@ -219,43 +197,24 @@ export default function AdminStaffManager() {
             <form onSubmit={handleUpdate} className="space-y-3">
               <div>
                 <label className="block text-sm font-medium mb-1">Role</label>
-                <select
-                  value={editingStaff.role}
-                  onChange={e => setEditingStaff({ ...editingStaff, role: e.target.value })}
-                  className="w-full p-2 border rounded"
-                >
-                  {ALL_ROLES.map(r => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
+                <select value={editingStaff.role} onChange={e => setEditingStaff({ ...editingStaff, role: e.target.value })} className="w-full p-2 border rounded">
+                  {ALL_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Phone</label>
-                <input
-                  type="text"
-                  value={editingStaff.phone || ''}
-                  onChange={e => setEditingStaff({ ...editingStaff, phone: e.target.value })}
-                  className="w-full p-2 border rounded"
-                />
+                <input type="text" value={editingStaff.phone || ''} onChange={e => setEditingStaff({ ...editingStaff, phone: e.target.value })} className="w-full p-2 border rounded" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Status</label>
-                <select
-                  value={editingStaff.active ? 'active' : 'inactive'}
-                  onChange={e => setEditingStaff({ ...editingStaff, active: e.target.value === 'active' })}
-                  className="w-full p-2 border rounded"
-                >
+                <select value={editingStaff.active ? 'active' : 'inactive'} onChange={e => setEditingStaff({ ...editingStaff, active: e.target.value === 'active' })} className="w-full p-2 border rounded">
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                 </select>
               </div>
               <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setEditingStaff(null)} className="flex-1 py-2 border rounded hover:bg-gray-50">
-                  Cancel
-                </button>
-                <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-                  Save Changes
-                </button>
+                <button type="button" onClick={() => setEditingStaff(null)} className="flex-1 py-2 border rounded hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Save Changes</button>
               </div>
             </form>
           </div>

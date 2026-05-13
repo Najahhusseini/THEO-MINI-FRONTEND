@@ -5,6 +5,8 @@ export interface Staff {
   role: 'admin' | 'manager' | 'frontdesk' | 'housekeeping' | 'maintenance' | 'head_housekeeping'
   sub_role?: 'room_cleaning' | 'hallway' | 'laundry' | 'general'
   tenantId: string
+  isSuperAdmin?: boolean
+  amenities?: string[]            // ✅ NEW
 }
 
 export interface Room {

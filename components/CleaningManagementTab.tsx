@@ -27,7 +27,8 @@ interface Room {
   request_status?: string
   request_type?: 'stay_over' | 'checkout'
   assigned_to_name?: string
-  assigned_to_id?: string
+  assigned_to_id?: string           // ✅ NEW
+  assigned_cleaner_name?: string    // from room's assigned_cleaner_id
   out_of_order?: boolean
   out_of_order_reason?: string
   notes?: string[] | null
@@ -56,6 +57,13 @@ export default function CleaningManagementTab() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   const isHead = staff?.role === 'head_housekeeping' || staff?.role === 'admin' || staff?.role === 'manager'
+
+  // Helper: get staff name from staff list
+  const getStaffName = (staffId?: string) => {
+    if (!staffId) return null
+    const found = staffList.find(s => s.id === staffId)
+    return found?.name || null
+  }
 
   // Save notes handler
   const handleSaveRoomNotes = async (roomId: string, notes: string[]) => {
@@ -98,7 +106,6 @@ export default function CleaningManagementTab() {
             map[num] = { status: 'reserved', guest_name: s.guest_name }
           }
         }
-        // Fill vacant
         for (const room of rooms) {
           if (!map[room.room_number]) map[room.room_number] = { status: 'vacant' }
         }
@@ -114,7 +121,7 @@ export default function CleaningManagementTab() {
   const inHouse = rooms.filter(r => {
     if (r.out_of_order) return false
     const occ = occupancyMap[r.room_number]
-    return occ?.status === 'occupied'   // only guests who are physically in the room
+    return occ?.status === 'occupied'
   })
 
   const checkout = rooms.filter(r => {
@@ -205,6 +212,25 @@ export default function CleaningManagementTab() {
     }
   }
 
+  // ✅ Resolve assigned staff name from all possible sources
+  const resolveAssignedName = (room: Room): string => {
+    // 1. Direct name from query
+    if (room.assigned_to_name) return room.assigned_to_name
+    // 2. Fallback from room's assigned_cleaner_name
+    if ((room as any).assigned_cleaner_name) return (room as any).assigned_cleaner_name
+    // 3. Look up by assigned_to_id from staff list
+    if (room.assigned_to_id) {
+      const name = getStaffName(room.assigned_to_id)
+      if (name) return name
+    }
+    // 4. Look up by room's assigned_cleaner_id (if we have it)
+    if ((room as any).assigned_cleaner_id) {
+      const name = getStaffName((room as any).assigned_cleaner_id)
+      if (name) return name
+    }
+    return '—'
+  }
+
   if (loading) return <div className="text-center py-12">Loading cleaning board…</div>
 
   return (
@@ -264,10 +290,7 @@ export default function CleaningManagementTab() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="font-medium">Room {room.room_number}</div>
                         <div className="text-xs text-gray-500">{room.room_type} • Floor {room.floor}</div>
-                        <StickyNoteBadge
-                          notes={room.notes || null}
-                          onSave={async (notes) => await handleSaveRoomNotes(room.id, notes)}
-                        />
+                        <StickyNoteBadge notes={room.notes || null} onSave={async (notes) => await handleSaveRoomNotes(room.id, notes)} />
                       </td>
                       <td className="px-6 py-4">{occ.guest_name || '—'}</td>
                       <td className="px-6 py-4">
@@ -275,7 +298,7 @@ export default function CleaningManagementTab() {
                           {room.cleaning_status.toUpperCase()}
                         </span>
                       </td>
-                      <td className="px-6 py-4">{room.assigned_to_name || '—'}</td>
+                      <td className="px-6 py-4">{resolveAssignedName(room)}</td>
                       <td className="px-6 py-4 space-x-2">
                         {!room.cleaning_request_id || room.request_status === 'pending' ? (
                           <button onClick={() => handleAssignClick(room)} className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">Assign</button>
@@ -321,10 +344,7 @@ export default function CleaningManagementTab() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="font-medium">Room {room.room_number}</div>
                         <div className="text-xs text-gray-500">{room.room_type} • Floor {room.floor}</div>
-                        <StickyNoteBadge
-                          notes={room.notes || null}
-                          onSave={async (notes) => await handleSaveRoomNotes(room.id, notes)}
-                        />
+                        <StickyNoteBadge notes={room.notes || null} onSave={async (notes) => await handleSaveRoomNotes(room.id, notes)} />
                       </td>
                       <td className="px-6 py-4">{getOccBadge(occ)}</td>
                       <td className="px-6 py-4">
@@ -332,7 +352,7 @@ export default function CleaningManagementTab() {
                           {room.cleaning_status.toUpperCase()}
                         </span>
                       </td>
-                      <td className="px-6 py-4">{room.assigned_to_name || '—'}</td>
+                      <td className="px-6 py-4">{resolveAssignedName(room)}</td>
                       <td className="px-6 py-4 space-x-2">
                         {!room.cleaning_request_id || room.request_status === 'pending' ? (
                           <button onClick={() => handleAssignClick(room)} className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700">Assign</button>
@@ -372,10 +392,7 @@ export default function CleaningManagementTab() {
                     <td className="px-6 py-4 whitespace-nowrap font-medium">
                       Room {room.room_number}
                       <div className="text-xs text-gray-500">{room.room_type} • Floor {room.floor}</div>
-                      <StickyNoteBadge
-                        notes={room.notes || null}
-                        onSave={async (notes) => await handleSaveRoomNotes(room.id, notes)}
-                      />
+                      <StickyNoteBadge notes={room.notes || null} onSave={async (notes) => await handleSaveRoomNotes(room.id, notes)} />
                     </td>
                     <td className="px-6 py-4 text-sm text-red-600">{room.out_of_order_reason}</td>
                     <td className="px-6 py-4">
