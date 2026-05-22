@@ -20,6 +20,8 @@ const ALL_ROLES = [
   { value: 'reservation_manager', label: 'Reservation Manager' },
   { value: 'head_housekeeping', label: 'Head Housekeeping' },
   { value: 'housekeeping', label: 'Housekeeping' },
+  { value: 'head_maintenance', label: 'Head Maintenance' },   // ✅ NEW
+  { value: 'maintenance', label: 'Maintenance' },             // ✅ NEW
 ]
 
 export default function AdminStaffManager() {

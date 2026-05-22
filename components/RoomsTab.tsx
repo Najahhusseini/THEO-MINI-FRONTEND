@@ -15,7 +15,7 @@ import {
   setRoomOutOfOrder
 } from '@/lib/api'
 import api from '@/lib/api'
-import StickyNoteBadge from './StickyNoteBadge'          // ✅ NEW
+import StickyNoteBadge from './StickyNoteBadge'
 
 interface Room {
     id: string
@@ -29,7 +29,7 @@ interface Room {
     out_of_order?: boolean
     out_of_order_reason?: string
     assigned_cleaner_id?: string
-    notes?: string[] | null                           // ✅ NEW
+    notes?: string[] | null
 }
 
 type OccupancyInfo = {
@@ -82,12 +82,12 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
 
     const floors = [...new Set(rooms.map(r => getFloor(r)))].sort((a, b) => a - b)
 
-    // ✅ Save notes handler (head only)
+    // Save notes handler (head only)
     const handleSaveRoomNotes = async (roomId: string, notes: string[]) => {
         try {
             await api.patch(`/rooms/${roomId}/notes`, { notes })
             toast.success('Notes updated')
-            refreshRooms()   // immediate refresh so cards show the notes
+            refreshRooms()
         } catch (err: any) {
             toast.error(err.response?.data?.error || 'Failed to save notes')
         }
@@ -374,7 +374,7 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
             <div className="max-w-7xl mx-auto mb-6">
                 <h1 className="text-3xl font-light text-gray-800">🏨 Rooms</h1>
                 <p className="text-sm text-gray-500 mt-1">
-                    {isCleaner ? 'Cleaner: click a room to change status (dirty → cleaning → ready)' :
+                    {isCleaner ? 'Cleaner: click a room to change status or report a problem' :
                         isHead ? 'Head: click a room to inspect, await guest, mark out of order, or reassign guest' :
                             'View only'}
                 </p>
@@ -452,7 +452,6 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                                     <div className="text-xs text-gray-500">Floor {getFloor(room)}</div>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    {/* ✅ Sticky notes only for head */}
                                     {isHead && (
                                         <StickyNoteBadge
                                             notes={room.notes || null}
@@ -510,7 +509,6 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                         </div>
 
                         <div className="p-6 space-y-4">
-                            {/* ✅ Notes section for head */}
                             {isHead && (
                                 <div className="flex items-center gap-2">
                                     <span className="font-semibold text-gray-600">Notes:</span>
@@ -550,7 +548,7 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                                 </div>
                             )}
 
-                            {/* 🔄 REASSIGN GUEST – visible even in readOnly mode */}
+                            {/* 🔄 REASSIGN GUEST */}
                             {!selectedRoom.out_of_order &&
                              (occupancyMap[getRoomNumber(selectedRoom)]?.status === 'occupied' ||
                               occupancyMap[getRoomNumber(selectedRoom)]?.status === 'arriving_today') &&
@@ -574,7 +572,7 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                                 </div>
                             )}
 
-                            {/* ✅ Hide cleaner/head actions + reassign cleaner when readOnly */}
+                            {/* Assigned cleaner info (head only) */}
                             {!readOnly && isHead && (
                                 <div className="bg-gray-50 p-3 rounded-lg border">
                                     <p className="text-sm font-semibold text-gray-700">Assigned Cleaner</p>
@@ -589,6 +587,7 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                                 </div>
                             )}
 
+                            {/* Action buttons (cleaner + head) */}
                             {!readOnly && !selectedRoom.out_of_order ? (
                                 <>
                                     {isCleaner && (
@@ -599,6 +598,20 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                                             {getCleaningStatus(selectedRoom) === 'cleaning' && (
                                                 <button onClick={() => handleStatusChange(selectedRoom.id, 'ready')} disabled={updating} className="w-full bg-green-500 hover:bg-green-600 text-white py-2 rounded-lg transition">✅ Mark Ready</button>
                                             )}
+                                            {/* Out of Order button for cleaners (and heads) */}
+                                            <button
+                                                onClick={() => {
+                                                    const reason = prompt('Enter reason for out of order:')
+                                                    if (reason && reason.trim()) {
+                                                        setOooReason(reason)
+                                                        handleSetOutOfOrder()
+                                                    }
+                                                }}
+                                                disabled={updating}
+                                                className="w-full bg-gray-700 hover:bg-gray-800 text-white py-2 rounded-lg transition"
+                                            >
+                                                🚫 Mark Out of Order
+                                            </button>
                                         </div>
                                     )}
 
@@ -608,8 +621,20 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                                                 <button onClick={() => handleStatusChange(selectedRoom.id, 'inspected')} disabled={updating} className="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition">🔍 Inspect Room</button>
                                             )}
                                             <button onClick={() => handleStatusChange(selectedRoom.id, 'dirty')} disabled={updating} className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg transition">🟡 Mark Dirty (needs cleaning)</button>
-                                            <hr className="my-2" />
-                                            <button onClick={() => { setOooReason(''); const reason = prompt('Enter reason for out of order:'); if (reason && reason.trim()) { setOooReason(reason); handleSetOutOfOrder() } }} disabled={oooSubmitting} className="w-full bg-gray-700 hover:bg-gray-800 text-white py-2 rounded-lg transition">🚫 Mark Out of Order</button>
+                                            {/* Out of Order button for heads as well (shared) */}
+                                            <button
+                                                onClick={() => {
+                                                    const reason = prompt('Enter reason for out of order:')
+                                                    if (reason && reason.trim()) {
+                                                        setOooReason(reason)
+                                                        handleSetOutOfOrder()
+                                                    }
+                                                }}
+                                                disabled={updating}
+                                                className="w-full bg-gray-700 hover:bg-gray-800 text-white py-2 rounded-lg transition"
+                                            >
+                                                🚫 Mark Out of Order
+                                            </button>
                                         </div>
                                     )}
                                 </>
@@ -625,7 +650,7 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                 </div>
             )}
 
-            {/* REASSIGN CLEANER MODAL – only if NOT readOnly */}
+            {/* REASSIGN CLEANER MODAL */}
             {!readOnly && showReassignModal && selectedRoom && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl p-6">
@@ -649,7 +674,7 @@ export default function RoomsTab({ readOnly = false }: { readOnly?: boolean }) {
                 </div>
             )}
 
-            {/* 🔄 REASSIGN GUEST MODAL – visible to everyone who can use it */}
+            {/* 🔄 REASSIGN GUEST MODAL */}
             {showReassignGuestModal && selectedRoom && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">

@@ -27,6 +27,7 @@ import EmailIngestionTab from '@/components/EmailIngestionTab'
 import PriorityCleaningList from '@/components/PriorityCleaningList'
 import AdminStaffManager from '@/components/AdminStaffManager'
 import GuestProfilesTab from '@/components/GuestProfilesTab'
+import FinancialEventsOutbox from '@/components/FinancialEventsOutbox'   // ✅ NEW IMPORT
 
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
 import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
@@ -189,6 +190,8 @@ export default function DashboardPage() {
       baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['admin', 'manager', 'frontdesk', 'reservation_manager'] })
       baseTabs.push({ id: 'reports', label: '📊 Reports', icon: '📊', roles: ['admin', 'manager'] })
       baseTabs.push({ id: 'reservations-admin', label: '📅 Reservations (Admin)', icon: '📅', roles: ['admin', 'manager'] })
+      // ✅ NEW TAB – Financial Outbox
+      baseTabs.push({ id: 'financial-outbox', label: '💰 Financial Outbox', icon: '💰', roles: ['admin', 'manager'] })
     }
 
     if (role === 'reservation_manager') {
@@ -212,7 +215,6 @@ export default function DashboardPage() {
     if (amenities.includes('Spa')) {
       baseTabs.push({ id: 'spa', label: '💆 Spa', icon: '💆', roles: ['admin', 'manager', 'frontdesk'] })
     }
-    // … add any other amenity you need
     
     return baseTabs
   }
@@ -346,7 +348,6 @@ export default function DashboardPage() {
             <CleaningPerformance />
           )}
 
-          {/* ✅ Updated Staff tab */}
           {activeTab === 'staff' && (staff?.role === 'admin' || staff?.role === 'manager') && (
             <div className="space-y-8">
               <StaffAttendanceTable />
@@ -354,7 +355,6 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ✅ New Guest Profiles tab */}
           {activeTab === 'guests' && (['admin', 'manager', 'frontdesk', 'reservation_manager'].includes(staff?.role || '')) && (
             <GuestProfilesTab />
           )}
@@ -365,7 +365,12 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ✅ Amenity placeholder tabs */}
+          {/* ✅ Financial Outbox tab */}
+          {activeTab === 'financial-outbox' && (staff?.role === 'admin' || staff?.role === 'manager') && (
+            <FinancialEventsOutbox />
+          )}
+
+          {/* Amenity placeholder tabs */}
           {activeTab === 'restaurant' && (
             <div className="text-center py-12 bg-white rounded-lg border">
               <p className="text-gray-500">🍽️ Restaurant module coming soon</p>

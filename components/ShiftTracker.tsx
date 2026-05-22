@@ -50,6 +50,7 @@ export default function ShiftTracker() {
     const [showTimeOffModal, setShowTimeOffModal] = useState(false)
     const [timeOffDates, setTimeOffDates] = useState({ start: '', end: '' })
     const [timeOffReason, setTimeOffReason] = useState('')
+    const [manualRefresh, setManualRefresh] = useState(0)
 
     const formatDuration = (minutes: number) => {
         const hrs = Math.floor(minutes / 60)
@@ -95,10 +96,15 @@ export default function ShiftTracker() {
 
     useEffect(() => {
         loadData()
-        // Poll every 10 seconds for real‑time updates
-        const interval = setInterval(loadData, 10000)
-        const handleRefresh = () => loadData()
+        // Poll every 30 seconds (reduced from 10s)
+        const interval = setInterval(loadData, 30000)
+        
+        const handleRefresh = () => {
+            console.log('🔄 Shift tracker refresh triggered')
+            loadData()
+        }
         window.addEventListener('refresh-attendance', handleRefresh)
+        
         return () => {
             clearInterval(interval)
             window.removeEventListener('refresh-attendance', handleRefresh)
@@ -111,8 +117,9 @@ export default function ShiftTracker() {
             toast.success('Clocked in successfully')
             loadData()
             window.dispatchEvent(new CustomEvent('refresh-attendance'))
-        } catch (error) {
-            toast.error('Failed to clock in')
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message || 'Failed to clock in'
+            toast.error(errorMsg)
         }
     }
 
@@ -122,9 +129,16 @@ export default function ShiftTracker() {
             toast.success('Clocked out successfully')
             loadData()
             window.dispatchEvent(new CustomEvent('refresh-attendance'))
-        } catch (error) {
-            toast.error('Failed to clock out')
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message || 'Failed to clock out'
+            toast.error(errorMsg)
         }
+    }
+
+    const handleManualRefresh = () => {
+        setManualRefresh(prev => prev + 1)
+        loadData()
+        toast.success('Data refreshed')
     }
 
     const handleTimeOffRequest = async () => {
@@ -138,8 +152,9 @@ export default function ShiftTracker() {
             setShowTimeOffModal(false)
             setTimeOffDates({ start: '', end: '' })
             setTimeOffReason('')
-        } catch (error) {
-            toast.error('Failed to submit request')
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || error.message || 'Failed to submit request'
+            toast.error(errorMsg)
         }
     }
 
@@ -175,10 +190,18 @@ export default function ShiftTracker() {
     return (
         <>
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
-                {/* Header */}
-                <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4">
-                    <h3 className="text-lg font-semibold text-white">Shift Tracker</h3>
-                    <p className="text-sm text-purple-100 mt-1">Track your hours and overtime</p>
+                {/* Header with manual refresh */}
+                <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4 flex justify-between items-center">
+                    <div>
+                        <h3 className="text-lg font-semibold text-white">Shift Tracker</h3>
+                        <p className="text-sm text-purple-100 mt-1">Track your hours and overtime</p>
+                    </div>
+                    <button
+                        onClick={handleManualRefresh}
+                        className="px-3 py-1 bg-white/20 text-white rounded-md hover:bg-white/30 transition text-sm"
+                    >
+                        🔄 Refresh
+                    </button>
                 </div>
 
                 {/* Current status card */}
