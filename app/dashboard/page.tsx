@@ -27,7 +27,14 @@ import EmailIngestionTab from '@/components/EmailIngestionTab'
 import PriorityCleaningList from '@/components/PriorityCleaningList'
 import AdminStaffManager from '@/components/AdminStaffManager'
 import GuestProfilesTab from '@/components/GuestProfilesTab'
-import FinancialEventsOutbox from '@/components/FinancialEventsOutbox'   // ✅ NEW IMPORT
+import RestaurantTab from '@/components/FoodBeverage/RestaurantTab'
+import BarTab from '@/components/FoodBeverage/BarTab'
+import KitchenBoard from '@/components/FoodBeverage/KitchenBoard'
+import WaiterOrderPanel from '@/components/FoodBeverage/WaiterOrderPanel'
+import BarBoard from '@/components/FoodBeverage/BarBoard'
+import BarStaffPanel from '@/components/FoodBeverage/BarStaffPanel'
+import KitchenMealPlanner from '@/components/FoodBeverage/KitchenMealPlanner' // ✅ NEW
+import FinancialEventsOutbox from '@/components/FinancialEventsOutbox'
 
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
 import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
@@ -190,7 +197,6 @@ export default function DashboardPage() {
       baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['admin', 'manager', 'frontdesk', 'reservation_manager'] })
       baseTabs.push({ id: 'reports', label: '📊 Reports', icon: '📊', roles: ['admin', 'manager'] })
       baseTabs.push({ id: 'reservations-admin', label: '📅 Reservations (Admin)', icon: '📅', roles: ['admin', 'manager'] })
-      // ✅ NEW TAB – Financial Outbox
       baseTabs.push({ id: 'financial-outbox', label: '💰 Financial Outbox', icon: '💰', roles: ['admin', 'manager'] })
     }
 
@@ -198,13 +204,29 @@ export default function DashboardPage() {
       baseTabs.push({ id: 'guests', label: '🛎️ Guests', icon: '🛎️', roles: ['reservation_manager'] })
     }
 
-    // ✅ Amenity‑based tabs
+    // ✅ Role‑based F&B tabs (kitchen & bar)
+    if (role === 'kitchen_head') {
+      baseTabs.push({ id: 'kitchen-board', label: '🍳 Kitchen Board', icon: '🍳', roles: ['kitchen_head'] })
+      baseTabs.push({ id: 'kitchen-meal-planner', label: '🥘 Meal Plans', icon: '🥘', roles: ['kitchen_head'] }) // ✅ NEW
+    }
+    if (role === 'kitchen_staff') {
+      baseTabs.push({ id: 'waiter-orders', label: '🍽️ My Waiter Orders', icon: '🍽️', roles: ['kitchen_staff'] })
+      baseTabs.push({ id: 'kitchen-meal-planner', label: '🥘 Meal Plans', icon: '🥘', roles: ['kitchen_staff'] }) // ✅ NEW
+    }
+    if (role === 'bar_head') {
+      baseTabs.push({ id: 'bar-board', label: '🍸 Bar Board', icon: '🍸', roles: ['bar_head'] })
+    }
+    if (role === 'bar_staff') {
+      baseTabs.push({ id: 'bar-staff-orders', label: '🍸 My Bar Orders', icon: '🍸', roles: ['bar_staff'] })
+    }
+
+    // ✅ Amenity‑based tabs (admin/manager/frontdesk overview)
     const amenities: string[] = staff?.amenities || []
     if (amenities.includes('Restaurant')) {
-      baseTabs.push({ id: 'restaurant', label: '🍽️ Restaurant', icon: '🍽️', roles: ['admin', 'manager', 'frontdesk'] })
+      baseTabs.push({ id: 'restaurant', label: '🍽️ Restaurant Overview', icon: '🍽️', roles: ['admin', 'manager', 'frontdesk'] })
     }
     if (amenities.includes('Bar')) {
-      baseTabs.push({ id: 'bar', label: '🍸 Bar', icon: '🍸', roles: ['admin', 'manager', 'frontdesk'] })
+      baseTabs.push({ id: 'bar', label: '🍸 Bar Overview', icon: '🍸', roles: ['admin', 'manager', 'frontdesk'] })
     }
     if (amenities.includes('Room Service')) {
       baseTabs.push({ id: 'room-service', label: '🛎️ Room Service', icon: '🛎️', roles: ['admin', 'manager', 'frontdesk'] })
@@ -288,24 +310,10 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {activeTab === 'reservations' && (
-            <ReservationTab />
-          )}
-
-          {activeTab === 'reservations-admin' && (
-            <ReservationManagerDashboard standalone={false} />
-          )}
-
-          {activeTab === 'email-ingestion' && (
-            <EmailIngestionTab />
-          )}
-
-          {activeTab === 'shifts' && (
-            <div className="max-w-3xl mx-auto">
-              <ShiftTracker />
-            </div>
-          )}
-
+          {activeTab === 'reservations' && <ReservationTab />}
+          {activeTab === 'reservations-admin' && <ReservationManagerDashboard standalone={false} />}
+          {activeTab === 'email-ingestion' && <EmailIngestionTab />}
+          {activeTab === 'shifts' && <div className="max-w-3xl mx-auto"><ShiftTracker /></div>}
           {activeTab === 'schedule' && (
             <div>
               {(staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'head_housekeeping') ? (
@@ -315,72 +323,40 @@ export default function DashboardPage() {
               )}
             </div>
           )}
-
-          {activeTab === 'cleaning' && (
-            <CleaningManagementTab />
-          )}
-
-          {activeTab === 'my-rooms' && (
-            <StaffMyRooms />
-          )}
-
-          {activeTab === 'priority-cleaning' && (
-            <PriorityCleaningList />
-          )}
-
-          {activeTab === 'tasks' && (
-            <TasksTab />
-          )}
-
-          {activeTab === 'supplies' && (
-            <SuppliesTab />
-          )}
-
-          {activeTab === 'supply-requests' && (staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'head_housekeeping') && (
-            <SupplyRequestsTab />
-          )}
-
-          {activeTab === 'staff-supply' && staff?.role === 'housekeeping' && (
-            <StaffSupplyRequest />
-          )}
-
-          {activeTab === 'performance' && staff?.role === 'head_housekeeping' && (
-            <CleaningPerformance />
-          )}
-
+          {activeTab === 'cleaning' && <CleaningManagementTab />}
+          {activeTab === 'my-rooms' && <StaffMyRooms />}
+          {activeTab === 'priority-cleaning' && <PriorityCleaningList />}
+          {activeTab === 'tasks' && <TasksTab />}
+          {activeTab === 'supplies' && <SuppliesTab />}
+          {activeTab === 'supply-requests' && (staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'head_housekeeping') && <SupplyRequestsTab />}
+          {activeTab === 'staff-supply' && staff?.role === 'housekeeping' && <StaffSupplyRequest />}
+          {activeTab === 'performance' && staff?.role === 'head_housekeeping' && <CleaningPerformance />}
           {activeTab === 'staff' && (staff?.role === 'admin' || staff?.role === 'manager') && (
             <div className="space-y-8">
               <StaffAttendanceTable />
               <AdminStaffManager />
             </div>
           )}
-
-          {activeTab === 'guests' && (['admin', 'manager', 'frontdesk', 'reservation_manager'].includes(staff?.role || '')) && (
-            <GuestProfilesTab />
-          )}
-
+          {activeTab === 'guests' && (['admin', 'manager', 'frontdesk', 'reservation_manager'].includes(staff?.role || '')) && <GuestProfilesTab />}
           {activeTab === 'reports' && (staff?.role === 'admin' || staff?.role === 'manager') && (
             <div className="text-center py-12 bg-white rounded-lg border">
               <p className="text-gray-500">Reports & analytics coming soon...</p>
             </div>
           )}
+          {activeTab === 'financial-outbox' && (staff?.role === 'admin' || staff?.role === 'manager') && <FinancialEventsOutbox />}
 
-          {/* ✅ Financial Outbox tab */}
-          {activeTab === 'financial-outbox' && (staff?.role === 'admin' || staff?.role === 'manager') && (
-            <FinancialEventsOutbox />
-          )}
+          {/* ✅ Role‑based F&B components */}
+          {activeTab === 'kitchen-board' && <KitchenBoard />}
+          {activeTab === 'kitchen-meal-planner' && <KitchenMealPlanner />} {/* ✅ NEW */}
+          {activeTab === 'waiter-orders' && <WaiterOrderPanel />}
+          {activeTab === 'bar-board' && <BarBoard />}
+          {activeTab === 'bar-staff-orders' && <BarStaffPanel />}
 
-          {/* Amenity placeholder tabs */}
-          {activeTab === 'restaurant' && (
-            <div className="text-center py-12 bg-white rounded-lg border">
-              <p className="text-gray-500">🍽️ Restaurant module coming soon</p>
-            </div>
-          )}
-          {activeTab === 'bar' && (
-            <div className="text-center py-12 bg-white rounded-lg border">
-              <p className="text-gray-500">🍸 Bar module coming soon</p>
-            </div>
-          )}
+          {/* ✅ Admin/Manager overviews (amenity‑based) */}
+          {activeTab === 'restaurant' && <RestaurantTab />}
+          {activeTab === 'bar' && <BarTab />}
+
+          {/* Placeholders for other amenities */}
           {activeTab === 'room-service' && (
             <div className="text-center py-12 bg-white rounded-lg border">
               <p className="text-gray-500">🛎️ Room Service module coming soon</p>

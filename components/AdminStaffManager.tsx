@@ -20,8 +20,13 @@ const ALL_ROLES = [
   { value: 'reservation_manager', label: 'Reservation Manager' },
   { value: 'head_housekeeping', label: 'Head Housekeeping' },
   { value: 'housekeeping', label: 'Housekeeping' },
-  { value: 'head_maintenance', label: 'Head Maintenance' },   // ✅ NEW
-  { value: 'maintenance', label: 'Maintenance' },             // ✅ NEW
+  { value: 'head_maintenance', label: 'Head Maintenance' },
+  { value: 'maintenance', label: 'Maintenance' },
+  // ✅ Kitchen & Bar roles
+  { value: 'kitchen_head', label: 'Head of Kitchen' },
+  { value: 'kitchen_staff', label: 'Kitchen Staff / Waiter' },
+  { value: 'bar_head', label: 'Head of Bar' },
+  { value: 'bar_staff', label: 'Bar Staff' },
 ]
 
 export default function AdminStaffManager() {
@@ -124,7 +129,9 @@ export default function AdminStaffManager() {
               <tr key={s.id} className="border-t">
                 <td className="px-4 py-2">{s.name}</td>
                 <td className="px-4 py-2">{s.email}</td>
-                <td className="px-4 py-2 capitalize">{s.role.replace(/_/g, ' ')}</td>
+                <td className="px-4 py-2 capitalize">
+                  {ALL_ROLES.find(r => r.value === s.role)?.label || s.role.replace(/_/g, ' ')}
+                </td>
                 <td className="px-4 py-2">{s.phone || '—'}</td>
                 <td className="px-4 py-2">
                   <button
@@ -144,7 +151,7 @@ export default function AdminStaffManager() {
                     Edit
                   </button>
                 </td>
-              </tr>
+               </tr>
             ))}
           </tbody>
         </table>
