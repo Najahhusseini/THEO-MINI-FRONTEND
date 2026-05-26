@@ -16,7 +16,8 @@ import {
 import api from '@/lib/api'
 import { format, parseISO } from 'date-fns'
 import toast from 'react-hot-toast'
-import StickyNoteBadge from './StickyNoteBadge'                   // ✅ NEW
+import StickyNoteBadge from './StickyNoteBadge'
+import { useDebouncedClick } from '@/hooks/useDebouncedClick'
 
 interface Room {
   id: string
@@ -26,7 +27,7 @@ interface Room {
   out_of_order: boolean
   cleaning_status?: string
   price_per_night?: number | null
-  notes?: string[] | null                                    // ✅ NEW
+  notes?: string[] | null
 }
 
 type OccupancyInfo = {
@@ -67,8 +68,9 @@ const cleaningBorder: Record<string, string> = {
   'cleaning': 'border-l-yellow-500',
   'ready':    'border-l-green-500',
   'inspected':'border-l-blue-500',
-  'awaiting': 'border-l-purple-500',
+  // 'awaiting' removed
 }
+
 
 export default function AdminRoomsOverview() {
   const { staff } = useAuth()
@@ -105,12 +107,11 @@ export default function AdminRoomsOverview() {
   const canReassignGuest = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'head_housekeeping' || staff?.role === 'reservation_manager'
   const canEditPrice = staff?.role === 'admin' || staff?.role === 'manager' || staff?.role === 'reservation_manager' || staff?.role === 'frontdesk'
 
-  // ✅ Save room notes handler
   const handleSaveRoomNotes = async (roomId: string, notes: string[]) => {
     try {
       await api.patch(`/rooms/${roomId}/notes`, { notes })
       toast.success('Notes updated')
-      loadData()   // refresh to show notes immediately
+      loadData()
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to save notes')
     }
@@ -123,7 +124,7 @@ export default function AdminRoomsOverview() {
         id: r.id, room_number: r.room_number, floor: r.floor, room_type: r.room_type,
         out_of_order: r.out_of_order || false, cleaning_status: r.cleaning_status || r.status || 'dirty',
         price_per_night: r.price_per_night || null,
-        notes: r.notes || null,                       // ✅ include notes
+        notes: r.notes || null,
       }))
       setRooms(mappedRooms)
 
@@ -229,7 +230,6 @@ export default function AdminRoomsOverview() {
     } catch (err: any) { toast.error(err.response?.data?.error || 'Check‑in failed') }
   }
 
-  // ── Reassign Guest handlers ──
   const handleReassignGuest = async () => {
     const occ = selectedRoom ? occupancyMap[selectedRoom.room_number] : null
     if (!occ?.stay_id || !selectedNewRoom) return
@@ -282,7 +282,6 @@ export default function AdminRoomsOverview() {
   const roomTypes = [...new Set(availableNewRooms.map((r: any) => r.room_type).filter(Boolean))].sort()
   const newRoomFloors = [...new Set(availableNewRooms.map((r: any) => r.floor).filter(Boolean))].sort((a: number, b: number) => a - b)
 
-  // ── Price editing handlers ──
   const openPriceEdit = (room: Room) => {
     setSelectedRoom(room)
     setNewPrice(room.price_per_night != null ? String(room.price_per_night) : '')
@@ -317,6 +316,13 @@ export default function AdminRoomsOverview() {
       default: return <span className="px-2 py-0.5 text-sm rounded-full bg-gray-100 text-gray-600 font-medium">Vacant</span>
     }
   }
+
+  // ✅ Debounced versions of critical actions
+  const debouncedAssign = useDebouncedClick(handleAssign, 1000)
+  const debouncedCheckIn = useDebouncedClick(handleCheckIn, 1000)
+  const debouncedReassign = useDebouncedClick(handleReassignGuest, 1000)
+  const debouncedPriorityClean = useDebouncedClick(handlePriorityClean, 1000)
+  const debouncedSavePrice = useDebouncedClick(savePrice, 1000)
 
   if (loading) return <div className="text-center py-12">Loading rooms overview...</div>
 
@@ -364,7 +370,6 @@ export default function AdminRoomsOverview() {
                 </div>
                 <div className="text-3xl">{room.out_of_order ? '🚫' : '🏨'}</div>
               </div>
-              {/* ✅ Sticky note badge on card */}
               <div className="mt-2 flex items-center gap-2">
                 <StickyNoteBadge
                   notes={(room as any).notes || null}
@@ -420,7 +425,6 @@ export default function AdminRoomsOverview() {
                 }`}>{(selectedRoom.cleaning_status || 'dirty').toUpperCase()}</span>
               </div>
 
-              {/* ✅ Sticky notes in detail modal */}
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-gray-600">Notes:</span>
                 <StickyNoteBadge
@@ -429,7 +433,6 @@ export default function AdminRoomsOverview() {
                 />
               </div>
 
-              {/* Price display and edit */}
               <div className="flex justify-between items-center">
                 <div>
                   <span className="font-semibold text-gray-600">Price per night: </span>
@@ -447,7 +450,6 @@ export default function AdminRoomsOverview() {
                 )}
               </div>
 
-              {/* Inline price edit */}
               {editingPrice && selectedRoom?.id === selectedRoom.id && (
                 <div className="flex items-center gap-2">
                   <input
@@ -459,7 +461,7 @@ export default function AdminRoomsOverview() {
                     className="flex-1 p-2 border rounded"
                   />
                   <button
-                    onClick={savePrice}
+                    onClick={debouncedSavePrice}
                     disabled={savingPrice}
                     className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
                   >
@@ -487,12 +489,11 @@ export default function AdminRoomsOverview() {
                     </p>
                   )}
                   {occupancyMap[selectedRoom.room_number].status === 'arriving_today' && canCheckIn && (
-                    <button onClick={handleCheckIn} className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">✅ Check In Guest</button>
+                    <button onClick={debouncedCheckIn} className="mt-3 w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg transition">✅ Check In Guest</button>
                   )}
                 </div>
               )}
 
-              {/* 🔄 REASSIGN GUEST */}
               {!selectedRoom.out_of_order &&
                (occupancyMap[selectedRoom.room_number]?.status === 'occupied' ||
                 occupancyMap[selectedRoom.room_number]?.status === 'arriving_today') &&
@@ -513,7 +514,7 @@ export default function AdminRoomsOverview() {
               {!selectedRoom.out_of_order && (
                 <div className="space-y-2 pt-2">
                   <button onClick={() => { setShowDetailModal(false); openAssignModalFromDetail() }} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition">🏨 Assign Guest</button>
-                  <button onClick={handlePriorityClean} className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg transition">🧹 Request Priority Cleaning</button>
+                  <button onClick={debouncedPriorityClean} className="w-full bg-red-500 hover:bg-red-600 text-white py-2 rounded-lg transition">🧹 Request Priority Cleaning</button>
                 </div>
               )}
               <button onClick={() => setShowDetailModal(false)} className="w-full py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Close</button>
@@ -522,7 +523,7 @@ export default function AdminRoomsOverview() {
         </div>
       )}
 
-      {/* ASSIGN MODAL unchanged */}
+      {/* ASSIGN MODAL */}
       {showAssignModal && selectedRoom && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
@@ -544,14 +545,14 @@ export default function AdminRoomsOverview() {
               </div>
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setShowAssignModal(false)} className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button onClick={handleAssign} disabled={assigning || !guestName.trim()} className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">{assigning ? 'Assigning...' : 'Assign Room'}</button>
+                <button onClick={debouncedAssign} disabled={assigning || !guestName.trim()} className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">{assigning ? 'Assigning...' : 'Assign Room'}</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* 🔄 REASSIGN GUEST MODAL */}
+      {/* REASSIGN GUEST MODAL */}
       {showReassignGuestModal && selectedRoom && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden">
@@ -596,7 +597,7 @@ export default function AdminRoomsOverview() {
 
               <div className="flex gap-3 pt-2">
                 <button onClick={() => setShowReassignGuestModal(false)} className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button onClick={handleReassignGuest} disabled={!selectedNewRoom || reassignGuestSubmitting} className="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">
+                <button onClick={debouncedReassign} disabled={!selectedNewRoom || reassignGuestSubmitting} className="flex-1 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50">
                   {reassignGuestSubmitting ? 'Moving...' : 'Move Guest'}
                 </button>
               </div>

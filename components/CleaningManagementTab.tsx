@@ -21,14 +21,14 @@ interface Room {
   room_number: string
   floor: number
   room_type: string
-  cleaning_status: 'dirty' | 'cleaning' | 'ready' | 'inspected' | 'awaiting'
+  cleaning_status: 'dirty' | 'cleaning' | 'ready' | 'inspected'
   guest_name: string
   cleaning_request_id?: string
   request_status?: string
   request_type?: 'stay_over' | 'checkout'
   assigned_to_name?: string
-  assigned_to_id?: string           // ✅ NEW
-  assigned_cleaner_name?: string    // from room's assigned_cleaner_id
+  assigned_to_id?: string
+  assigned_cleaner_name?: string
   out_of_order?: boolean
   out_of_order_reason?: string
   notes?: string[] | null
@@ -58,14 +58,12 @@ export default function CleaningManagementTab() {
 
   const isHead = staff?.role === 'head_housekeeping' || staff?.role === 'admin' || staff?.role === 'manager'
 
-  // Helper: get staff name from staff list
   const getStaffName = (staffId?: string) => {
     if (!staffId) return null
     const found = staffList.find(s => s.id === staffId)
     return found?.name || null
   }
 
-  // Save notes handler
   const handleSaveRoomNotes = async (roomId: string, notes: string[]) => {
     try {
       await api.patch(`/rooms/${roomId}/notes`, { notes })
@@ -76,7 +74,6 @@ export default function CleaningManagementTab() {
     }
   }
 
-  // Load staff list
   useEffect(() => {
     if (!isHead) return
     getHousekeepingStaff()
@@ -84,7 +81,6 @@ export default function CleaningManagementTab() {
       .catch(() => toast.error('Failed to load staff'))
   }, [isHead])
 
-  // Build occupancy map
   useEffect(() => {
     const fetchOccupancy = async () => {
       try {
@@ -117,7 +113,6 @@ export default function CleaningManagementTab() {
     if (rooms.length > 0) fetchOccupancy()
   }, [rooms])
 
-  // ✅ CORRECTED SPLIT
   const inHouse = rooms.filter(r => {
     if (r.out_of_order) return false
     const occ = occupancyMap[r.room_number]
@@ -128,10 +123,9 @@ export default function CleaningManagementTab() {
     if (r.out_of_order) return false
     const occ = occupancyMap[r.room_number]
     if (occ?.status === 'occupied') return false
-    return r.cleaning_status !== 'ready' && r.cleaning_status !== 'inspected' && r.cleaning_status !== 'awaiting'
+    return r.cleaning_status !== 'ready' && r.cleaning_status !== 'inspected'
   })
 
-  // ensure request
   const ensureRequest = async (room: Room) => {
     if (room.cleaning_request_id) return room.cleaning_request_id
     try {
@@ -198,32 +192,30 @@ export default function CleaningManagementTab() {
       case 'cleaning': return 'bg-yellow-100 text-yellow-800'
       case 'ready': return 'bg-green-100 text-green-800'
       case 'inspected': return 'bg-blue-100 text-blue-800'
-      case 'awaiting': return 'bg-purple-100 text-purple-800'
       default: return 'bg-gray-100'
     }
   }
 
   const getOccBadge = (info: OccupancyInfo) => {
     switch (info.status) {
-      case 'occupied': return <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-800">Occupied</span>
-      case 'arriving_today': return <span className="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-800">Arriving Today</span>
-      case 'reserved': return <span className="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-800">Reserved</span>
-      default: return <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">Vacant</span>
+      case 'occupied':
+        return <span className="px-2 py-0.5 text-xs rounded-full bg-purple-100 text-purple-800">Occupied</span>
+      case 'arriving_today':
+        return <span className="px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-800">Arriving Today</span>
+      case 'reserved':
+        return <span className="px-2 py-0.5 text-xs rounded-full bg-orange-100 text-orange-800">Reserved</span>
+      default:
+        return <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">Vacant</span>
     }
   }
 
-  // ✅ Resolve assigned staff name from all possible sources
   const resolveAssignedName = (room: Room): string => {
-    // 1. Direct name from query
     if (room.assigned_to_name) return room.assigned_to_name
-    // 2. Fallback from room's assigned_cleaner_name
     if ((room as any).assigned_cleaner_name) return (room as any).assigned_cleaner_name
-    // 3. Look up by assigned_to_id from staff list
     if (room.assigned_to_id) {
       const name = getStaffName(room.assigned_to_id)
       if (name) return name
     }
-    // 4. Look up by room's assigned_cleaner_id (if we have it)
     if ((room as any).assigned_cleaner_id) {
       const name = getStaffName((room as any).assigned_cleaner_id)
       if (name) return name
@@ -281,7 +273,9 @@ export default function CleaningManagementTab() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {inHouse.length === 0 ? (
-                <tr><td colSpan={5} className="text-center py-8 text-gray-500">No occupied rooms</td></tr>
+                <tr>
+                  <td colSpan={5} className="text-center py-8 text-gray-500">No occupied rooms</td>
+                </tr>
               ) : (
                 inHouse.map(room => {
                   const occ = occupancyMap[room.room_number] || { status: 'vacant' }
@@ -335,7 +329,9 @@ export default function CleaningManagementTab() {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {checkout.length === 0 ? (
-                <tr><td colSpan={5} className="text-center py-8 text-gray-500">No checkout rooms need cleaning</td></tr>
+                <tr>
+                  <td colSpan={5} className="text-center py-8 text-gray-500">No checkout rooms need cleaning</td>
+                </tr>
               ) : (
                 checkout.map(room => {
                   const occ = occupancyMap[room.room_number] || { status: 'vacant' }

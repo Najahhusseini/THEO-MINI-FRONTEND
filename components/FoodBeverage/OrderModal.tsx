@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
+import { useDebouncedClick } from '@/hooks/useDebouncedClick';
 
 interface OrderModalProps {
   type: 'restaurant' | 'bar';
@@ -49,6 +50,8 @@ export default function OrderModal({ type, onClose, onSuccess }: OrderModalProps
       setLoading(false);
     }
   };
+
+  const debouncedSubmit = useDebouncedClick(submit, 1000);
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -107,7 +110,7 @@ export default function OrderModal({ type, onClose, onSuccess }: OrderModalProps
 
           <div className="flex gap-3 pt-4">
             <button onClick={onClose} className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
-            <button onClick={submit} disabled={loading} className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+            <button onClick={debouncedSubmit} disabled={loading} className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
               {loading ? 'Creating...' : 'Create Order'}
             </button>
           </div>

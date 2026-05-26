@@ -136,13 +136,13 @@ export default function ReceptionRoomsOverview({
           else if (occ === 'reserved') cardStyle = 'bg-orange-50 border-orange-300'
 
           // Cleaning status badge
-          const cleaningColors: Record<string, string> = {
-            dirty: 'bg-red-100 text-red-800',
-            cleaning: 'bg-yellow-100 text-yellow-800',
-            ready: 'bg-green-100 text-green-800',
-            inspected: 'bg-blue-100 text-blue-800',
-            awaiting: 'bg-purple-100 text-purple-800',
-          }
+           const cleaningColors: Record<string, string> = {
+    dirty: 'bg-red-100 text-red-800',
+    cleaning: 'bg-yellow-100 text-yellow-800',
+    ready: 'bg-green-100 text-green-800',
+    inspected: 'bg-blue-100 text-blue-800',
+    // awaiting removed
+  }
 
           return (
             <div

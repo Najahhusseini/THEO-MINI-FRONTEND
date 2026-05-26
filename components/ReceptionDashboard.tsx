@@ -57,17 +57,15 @@ export default function ReceptionDashboard() {
     getReceptionStats().then(setStats).catch(console.error)
   }, [])
 
-  // ── Queue helper (FIXED: toast moved outside the setState callback) ──
   const addToQueue = (guest: PendingCheckInGuest) => {
     let alreadyIn = false
     setPendingQueue(prev => {
       if (prev.some(g => g.reservationId === guest.reservationId)) {
         alreadyIn = true
-        return prev   // no change
+        return prev
       }
       return [...prev, guest]
     })
-    // Show toast after state update (will be batched by React)
     if (alreadyIn) {
       toast.error('Guest is already in the assignment queue')
     } else {
@@ -79,7 +77,6 @@ export default function ReceptionDashboard() {
     setPendingQueue(prev => prev.filter(g => g.reservationId !== reservationId))
   }
 
-  // ── Drop handler (called from Rooms Overview) ──
   const handleDropOnRoom = async (roomNumber: string, reservationId: string) => {
     const guest = pendingQueue.find(g => g.reservationId === reservationId)
     if (!guest) return
@@ -105,7 +102,6 @@ export default function ReceptionDashboard() {
     }
   }
 
-  // ── Guest Lookup ──
   const handleSearch = async () => {
     if (!searchTerm.trim()) return
     try {
@@ -122,7 +118,6 @@ export default function ReceptionDashboard() {
     }
   }
 
-  // ── Walk‑in form ──
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
   }
@@ -142,6 +137,7 @@ export default function ReceptionDashboard() {
         status: confirmNow ? 'confirmed' as const : 'pending_review' as const,
       }
       const reservation = await createReservation(dataToSend)
+      console.log('Reservation created:', reservation)
       toast.success(confirmNow ? 'Reservation confirmed!' : 'Reservation created (pending review)')
       setShowNewReservation(false)
       setFormData({ guest_name: '', guest_email: '', guest_phone: '', arrival_date: '', departure_date: '', room_type: 'Standard', number_of_guests: 1, number_of_rooms: 1, special_requests: '' })
@@ -166,7 +162,6 @@ export default function ReceptionDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <div className="bg-white shadow-sm border-b sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div>
@@ -182,7 +177,6 @@ export default function ReceptionDashboard() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
-        {/* Stats */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {[
             { label: 'Arriving Today', value: stats.arrivingToday || 0, color: 'text-blue-600' },
@@ -198,19 +192,14 @@ export default function ReceptionDashboard() {
           ))}
         </div>
 
-        {/* ZONE 1 – TODAY'S ARRIVALS */}
         <ArrivalGuestCards onAddToQueue={addToQueue} pendingQueue={pendingQueue} />
-
-        {/* ZONE 2 – QUICK ASSIGNMENT QUEUE */}
         <QuickAssignQueue guests={pendingQueue} onRemove={removeFromQueue} />
 
-        {/* ZONE 3 – ROOMS OVERVIEW */}
         <div className="bg-white rounded-xl shadow p-6">
           <h2 className="text-xl font-bold mb-4 text-gray-800">🏨 Rooms Overview</h2>
           <ReceptionRoomsOverview onDropGuest={handleDropOnRoom} />
         </div>
 
-        {/* Checked‑In Guests (departures / folio / key) */}
         <div className="bg-white rounded-xl shadow p-6">
           <CheckedInGuestsPanel />
         </div>

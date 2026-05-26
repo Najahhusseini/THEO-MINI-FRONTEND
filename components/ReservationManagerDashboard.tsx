@@ -24,6 +24,7 @@ import AdminRoomsOverview from '@/components/AdminRoomsOverview'
 import TodayArrivals from '@/components/TodayArrivals'
 import NotificationBell from '@/components/NotificationBell'
 import GuestProfilesTab from '@/components/GuestProfilesTab'
+import { useDebouncedClick } from '@/hooks/useDebouncedClick'   // ✅ NEW
 
 type ViewMode = 'table' | 'threePane' | 'tape' | 'email' | 'roomsOverview' | 'todaysArrivals' | 'waitlist' | 'guests'
 type SortField = 'guest_name' | 'arrival_date' | 'departure_date' | 'room_type' | 'status' | 'number_of_guests' | 'number_of_rooms' | 'created_at'
@@ -384,6 +385,14 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
         }
     }
 
+    // ✅ Debounced versions of critical actions
+    const debouncedSubmit = useDebouncedClick(submitReservation, 1000)
+    const debouncedConfirm = useDebouncedClick(handleConfirm, 1000)
+    const debouncedCancel = useDebouncedClick(handleCancel, 1000)
+    const debouncedWaitlist = useDebouncedClick(handleWaitlist, 1000)
+    const debouncedDateChange = useDebouncedClick(handleDateChangeRequest, 1000)
+    const debouncedUpdateWaitlist = useDebouncedClick(handleUpdateWaitlist, 1000)
+
     if (loading) return <div className="flex justify-center items-center h-64">Loading reservation dashboard...</div>
 
     const canAssignRoom = selectedReservation?.status === 'confirmed' && ['admin', 'manager', 'reservation_manager'].includes(staff?.role || '')
@@ -521,14 +530,14 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                         <div className="pt-4 flex gap-2 flex-wrap">
                                             {selectedReservation.status === 'pending_review' && (
                                                 <>
-                                                    <button onClick={() => handleConfirm(selectedReservation.id)} className="flex-1 bg-green-600 text-white py-1.5 rounded">Confirm</button>
+                                                    <button onClick={() => debouncedConfirm(selectedReservation.id)} className="flex-1 bg-green-600 text-white py-1.5 rounded">Confirm</button>
                                                     <button onClick={() => handleEdit(selectedReservation)} className="flex-1 bg-blue-600 text-white py-1.5 rounded">Edit</button>
-                                                    <button onClick={() => handleCancel(selectedReservation.id)} className="flex-1 bg-red-600 text-white py-1.5 rounded">Cancel</button>
+                                                    <button onClick={() => debouncedCancel(selectedReservation.id)} className="flex-1 bg-red-600 text-white py-1.5 rounded">Cancel</button>
                                                 </>
                                             )}
                                             {selectedReservation.status === 'confirmed' && (
                                                 <>
-                                                    <button onClick={() => handleCancel(selectedReservation.id)} className="flex-1 bg-red-600 text-white py-1.5 rounded">Cancel</button>
+                                                    <button onClick={() => debouncedCancel(selectedReservation.id)} className="flex-1 bg-red-600 text-white py-1.5 rounded">Cancel</button>
                                                     {canAssignRoom && (
                                                         <button
                                                             onClick={() => {
@@ -559,7 +568,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                 {viewMode === 'email' && <EmailIngestionTab />}
                 {viewMode === 'roomsOverview' && <AdminRoomsOverview />}
                 {viewMode === 'todaysArrivals' && <TodayArrivals />}
-                {viewMode === 'guests' && <GuestProfilesTab />}    {/* ✅ NEW */}
+                {viewMode === 'guests' && <GuestProfilesTab />}
 
                 {viewMode === 'waitlist' && (
                     <div className="bg-white rounded-lg shadow p-6">
@@ -587,8 +596,8 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                                 </span>
                                             </td>
                                             <td className="px-4 py-2 text-right space-x-2">
-                                                <button onClick={() => handleUpdateWaitlist(res)} className="text-blue-600 text-sm hover:underline">Edit</button>
-                                                <button onClick={() => handleConfirm(res.id)} className="text-green-600 text-sm hover:underline">Confirm</button>
+                                                <button onClick={() => debouncedUpdateWaitlist(res)} className="text-blue-600 text-sm hover:underline">Edit</button>
+                                                <button onClick={() => debouncedConfirm(res.id)} className="text-green-600 text-sm hover:underline">Confirm</button>
                                                 <button onClick={() => openDraftModal(res)} className="text-purple-600 text-sm hover:underline">Draft Email</button>
                                             </td>
                                         </tr>
@@ -640,25 +649,25 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                                             <td className="px-4 py-3"><span className={`px-2 py-1 text-xs rounded-full ${getStatusBadge(res.status)}`}>{res.status.replace('_',' ').toUpperCase()}</span></td>
                                             <td className="px-4 py-3 text-sm flex gap-2 flex-wrap">
                                                 {res.status === 'pending_review' && (
-                                                    <><button onClick={() => handleConfirm(res.id)} className="text-green-600 hover:text-green-900">Confirm</button>
+                                                    <><button onClick={() => debouncedConfirm(res.id)} className="text-green-600 hover:text-green-900">Confirm</button>
                                                     <button onClick={() => handleEdit(res)} className="text-blue-600 hover:text-blue-900">Edit</button>
-                                                    <button onClick={() => handleCancel(res.id)} className="text-red-600 hover:text-red-900">Cancel</button>
-                                                    <button onClick={() => handleWaitlist(res.id)} className="text-orange-600 hover:text-orange-900">Waitlist</button>
-                                                    <button onClick={() => handleDateChangeRequest(res.id)} className="text-purple-600 hover:text-purple-900">Date Change</button></>
+                                                    <button onClick={() => debouncedCancel(res.id)} className="text-red-600 hover:text-red-900">Cancel</button>
+                                                    <button onClick={() => debouncedWaitlist(res.id)} className="text-orange-600 hover:text-orange-900">Waitlist</button>
+                                                    <button onClick={() => debouncedDateChange(res.id)} className="text-purple-600 hover:text-purple-900">Date Change</button></>
                                                 )}
                                                 {res.status === 'confirmed' && (
-                                                    <><button onClick={() => handleCancel(res.id)} className="text-red-600 hover:text-red-900">Cancel</button>
-                                                    <button onClick={() => handleWaitlist(res.id)} className="text-orange-600 hover:text-orange-900">Waitlist</button>
-                                                    <button onClick={() => handleDateChangeRequest(res.id)} className="text-purple-600 hover:text-purple-900">Date Change</button></>
+                                                    <><button onClick={() => debouncedCancel(res.id)} className="text-red-600 hover:text-red-900">Cancel</button>
+                                                    <button onClick={() => debouncedWaitlist(res.id)} className="text-orange-600 hover:text-orange-900">Waitlist</button>
+                                                    <button onClick={() => debouncedDateChange(res.id)} className="text-purple-600 hover:text-purple-900">Date Change</button></>
                                                 )}
                                                 {res.status === 'waitlist' && (
-                                                    <><button onClick={() => handleUpdateWaitlist(res)} className="text-blue-600 hover:text-blue-900">Edit</button>
-                                                    <button onClick={() => handleConfirm(res.id)} className="text-green-600 hover:text-green-900">Confirm</button>
+                                                    <><button onClick={() => debouncedUpdateWaitlist(res)} className="text-blue-600 hover:text-blue-900">Edit</button>
+                                                    <button onClick={() => debouncedConfirm(res.id)} className="text-green-600 hover:text-green-900">Confirm</button>
                                                     <button onClick={() => openDraftModal(res)} className="text-purple-600 hover:text-purple-900">Draft Email</button></>
                                                 )}
                                                 {res.status === 'date_change_requested' && (
-                                                    <><button onClick={() => handleUpdateWaitlist(res)} className="text-blue-600 hover:text-blue-900">Edit</button>
-                                                    <button onClick={() => handleConfirm(res.id)} className="text-green-600 hover:text-green-900">Confirm</button>
+                                                    <><button onClick={() => debouncedUpdateWaitlist(res)} className="text-blue-600 hover:text-blue-900">Edit</button>
+                                                    <button onClick={() => debouncedConfirm(res.id)} className="text-green-600 hover:text-green-900">Confirm</button>
                                                     <button onClick={() => openDraftModal(res)} className="text-purple-600 hover:text-purple-900">Draft Email</button></>
                                                 )}
                                             </td>
@@ -679,13 +688,13 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                     </>
                 )}
 
-                {/* Reservation modal – SIMPLIFIED, NO ROOM TYPE */}
+                {/* Reservation modal */}
                 {showForm && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-auto">
                             <div className="p-6">
                                 <h2 className="text-xl font-bold mb-4">{selectedReservation ? 'Edit Reservation' : 'New Reservation'}</h2>
-                                <form onSubmit={submitReservation} className="space-y-4">
+                                <form onSubmit={debouncedSubmit} className="space-y-4">
                                     <input name="guest_name" placeholder="Guest Name *" value={formData.guest_name} onChange={handleInputChange} required className="w-full p-2 border rounded" />
                                     <div className="grid grid-cols-2 gap-4">
                                         <input name="guest_email" placeholder="Email" value={formData.guest_email} onChange={handleInputChange} className="p-2 border rounded" />
@@ -719,7 +728,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                     </div>
                 )}
 
-                {/* Room Assignment Modal with filters (unchanged) */}
+                {/* Room Assignment Modal with filters */}
                 {showAssignRoomModal && selectedReservation && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-xl max-w-lg w-full p-6">
@@ -793,7 +802,7 @@ export default function ReservationManagerDashboard({ standalone = true }: Props
                     </div>
                 )}
 
-                {/* ── Draft Email Modal ── */}
+                {/* Draft Email Modal */}
                 {showDraftModal && draftReservation && (
                     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                         <div className="bg-white rounded-xl max-w-md w-full shadow-xl p-6">

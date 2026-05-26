@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { getStays, toggleKeyIssued } from '@/lib/api'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
-import { format, parseISO } from 'date-fns'
+import { format, parseISO, differenceInDays } from 'date-fns'
 import GuestFolioModal from './GuestFolioModal'
 
 interface Stay {
@@ -20,6 +20,14 @@ export default function CheckedInGuestsPanel() {
   const [stays, setStays] = useState<Stay[]>([])
   const [loading, setLoading] = useState(true)
   const [folioStayId, setFolioStayId] = useState<string | null>(null)
+
+  // Extend stay state
+  const [extendStayId, setExtendStayId] = useState<string | null>(null)
+  const [extendRoomNumber, setExtendRoomNumber] = useState('')
+  const [extendCurrentDeparture, setExtendCurrentDeparture] = useState('')
+  const [extendNewDeparture, setExtendNewDeparture] = useState('')
+  const [extendPricePerNight, setExtendPricePerNight] = useState(0)
+  const [extendSubmitting, setExtendSubmitting] = useState(false)
 
   const loadStays = async () => {
     try {
@@ -69,6 +77,57 @@ export default function CheckedInGuestsPanel() {
     }
   }
 
+  const openExtendModal = (stay: Stay) => {
+    setExtendStayId(stay.id)
+    setExtendRoomNumber(stay.room_number)
+    setExtendCurrentDeparture(stay.departure_date.split('T')[0])
+    setExtendNewDeparture(stay.departure_date.split('T')[0])
+    // Fetch price per night for this room
+    fetchRoomPrice(stay.room_number)
+  }
+
+  const fetchRoomPrice = async (roomNumber: string) => {
+    try {
+      const res = await api.get(`/rooms/price?room_number=${roomNumber}`) // You may need an endpoint
+      // Fallback: if no endpoint, we can assume a default or calculate later
+      setExtendPricePerNight(res.data.price_per_night || 0)
+    } catch {
+      setExtendPricePerNight(0)
+    }
+  }
+
+  const calculateExtraCost = () => {
+    if (!extendCurrentDeparture || !extendNewDeparture) return 0
+    const current = parseISO(extendCurrentDeparture)
+    const newDate = parseISO(extendNewDeparture)
+    if (newDate <= current) return 0
+    const extraDays = differenceInDays(newDate, current)
+    return extraDays * extendPricePerNight
+  }
+
+  const handleExtendStay = async () => {
+    if (!extendStayId || !extendNewDeparture) return
+    const currentDate = parseISO(extendCurrentDeparture)
+    const newDate = parseISO(extendNewDeparture)
+    if (newDate <= currentDate) {
+      toast.error('New departure date must be after current departure')
+      return
+    }
+    setExtendSubmitting(true)
+    try {
+      await api.post(`/reservations/stays/${extendStayId}/extend`, {
+        newDepartureDate: extendNewDeparture
+      })
+      toast.success('Stay extended successfully')
+      setExtendStayId(null)
+      loadStays()
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to extend stay')
+    } finally {
+      setExtendSubmitting(false)
+    }
+  }
+
   if (loading) return <div className="text-center py-4 text-gray-500">Loading checked‑in guests…</div>
 
   return (
@@ -108,6 +167,12 @@ export default function CheckedInGuestsPanel() {
                   📋 Folio
                 </button>
                 <button
+                  onClick={() => openExtendModal(stay)}
+                  className="flex-1 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-200 transition"
+                >
+                  ➕ Extend
+                </button>
+                <button
                   onClick={() => handleCheckOut(stay.id)}
                   disabled={stay.key_issued}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium transition ${
@@ -124,6 +189,51 @@ export default function CheckedInGuestsPanel() {
         </div>
       )}
       {folioStayId && <GuestFolioModal stayId={folioStayId} onClose={() => setFolioStayId(null)} />}
+
+      {/* Extend Stay Modal */}
+      {extendStayId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold">Extend Stay</h3>
+              <button onClick={() => setExtendStayId(null)} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Room Number</label>
+                <input type="text" value={extendRoomNumber} disabled className="w-full p-2 border rounded bg-gray-100" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Current Departure Date</label>
+                <input type="date" value={extendCurrentDeparture} disabled className="w-full p-2 border rounded bg-gray-100" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New Departure Date</label>
+                <input
+                  type="date"
+                  value={extendNewDeparture}
+                  onChange={(e) => setExtendNewDeparture(e.target.value)}
+                  min={extendCurrentDeparture}
+                  className="w-full p-2 border rounded"
+                />
+              </div>
+              {extendPricePerNight > 0 && (
+                <div className="text-sm text-gray-600">
+                  Extra nights: {Math.max(0, differenceInDays(parseISO(extendNewDeparture), parseISO(extendCurrentDeparture)))}<br />
+                  Price per night: ${extendPricePerNight}<br />
+                  <span className="font-bold">Additional charge: ${calculateExtraCost().toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex gap-3 pt-4">
+                <button onClick={() => setExtendStayId(null)} className="flex-1 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">Cancel</button>
+                <button onClick={handleExtendStay} disabled={extendSubmitting} className="flex-1 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                  {extendSubmitting ? 'Extending...' : 'Confirm Extension'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
