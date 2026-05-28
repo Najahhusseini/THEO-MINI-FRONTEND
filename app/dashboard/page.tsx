@@ -33,8 +33,9 @@ import KitchenBoard from '@/components/FoodBeverage/KitchenBoard'
 import WaiterOrderPanel from '@/components/FoodBeverage/WaiterOrderPanel'
 import BarBoard from '@/components/FoodBeverage/BarBoard'
 import BarStaffPanel from '@/components/FoodBeverage/BarStaffPanel'
-import KitchenMealPlanner from '@/components/FoodBeverage/KitchenMealPlanner' // ✅ NEW
+import KitchenMealPlanner from '@/components/FoodBeverage/KitchenMealPlanner'
 import FinancialEventsOutbox from '@/components/FinancialEventsOutbox'
+import ErrorLogsTab from '@/components/ErrorLogsTab'
 
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts'
 import { subscribeToPushNotifications, getNotificationPermission, areNotificationsSupported } from '@/lib/notifications'
@@ -198,6 +199,8 @@ export default function DashboardPage() {
       baseTabs.push({ id: 'reports', label: '📊 Reports', icon: '📊', roles: ['admin', 'manager'] })
       baseTabs.push({ id: 'reservations-admin', label: '📅 Reservations (Admin)', icon: '📅', roles: ['admin', 'manager'] })
       baseTabs.push({ id: 'financial-outbox', label: '💰 Financial Outbox', icon: '💰', roles: ['admin', 'manager'] })
+      // ✅ NEW: Error Logs tab
+      baseTabs.push({ id: 'error-logs', label: '📋 Error Logs', icon: '📋', roles: ['admin', 'manager'] })
     }
 
     if (role === 'reservation_manager') {
@@ -207,11 +210,11 @@ export default function DashboardPage() {
     // ✅ Role‑based F&B tabs (kitchen & bar)
     if (role === 'kitchen_head') {
       baseTabs.push({ id: 'kitchen-board', label: '🍳 Kitchen Board', icon: '🍳', roles: ['kitchen_head'] })
-      baseTabs.push({ id: 'kitchen-meal-planner', label: '🥘 Meal Plans', icon: '🥘', roles: ['kitchen_head'] }) // ✅ NEW
+      baseTabs.push({ id: 'kitchen-meal-planner', label: '🥘 Meal Plans', icon: '🥘', roles: ['kitchen_head'] })
     }
     if (role === 'kitchen_staff') {
       baseTabs.push({ id: 'waiter-orders', label: '🍽️ My Waiter Orders', icon: '🍽️', roles: ['kitchen_staff'] })
-      baseTabs.push({ id: 'kitchen-meal-planner', label: '🥘 Meal Plans', icon: '🥘', roles: ['kitchen_staff'] }) // ✅ NEW
+      baseTabs.push({ id: 'kitchen-meal-planner', label: '🥘 Meal Plans', icon: '🥘', roles: ['kitchen_staff'] })
     }
     if (role === 'bar_head') {
       baseTabs.push({ id: 'bar-board', label: '🍸 Bar Board', icon: '🍸', roles: ['bar_head'] })
@@ -344,10 +347,11 @@ export default function DashboardPage() {
             </div>
           )}
           {activeTab === 'financial-outbox' && (staff?.role === 'admin' || staff?.role === 'manager') && <FinancialEventsOutbox />}
+          {activeTab === 'error-logs' && (staff?.role === 'admin' || staff?.role === 'manager') && <ErrorLogsTab />}
 
           {/* ✅ Role‑based F&B components */}
           {activeTab === 'kitchen-board' && <KitchenBoard />}
-          {activeTab === 'kitchen-meal-planner' && <KitchenMealPlanner />} {/* ✅ NEW */}
+          {activeTab === 'kitchen-meal-planner' && <KitchenMealPlanner />}
           {activeTab === 'waiter-orders' && <WaiterOrderPanel />}
           {activeTab === 'bar-board' && <BarBoard />}
           {activeTab === 'bar-staff-orders' && <BarStaffPanel />}

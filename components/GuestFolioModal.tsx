@@ -27,6 +27,7 @@ export default function GuestFolioModal({ stayId, onClose }: { stayId: string; o
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ description: '', amount: '', chargeType: 'other' })
+  const [submitting, setSubmitting] = useState(false)
 
   const loadFolio = async () => {
     try {
@@ -47,6 +48,7 @@ export default function GuestFolioModal({ stayId, onClose }: { stayId: string; o
       toast.error('Description and amount required')
       return
     }
+    setSubmitting(true)
     try {
       await api.post(`/folio/stay/${stayId}/charge`, {
         description: form.description,
@@ -56,9 +58,15 @@ export default function GuestFolioModal({ stayId, onClose }: { stayId: string; o
       toast.success('Charge added')
       setForm({ description: '', amount: '', chargeType: 'other' })
       setShowAdd(false)
-      loadFolio()
+      await loadFolio()
     } catch (err: any) {
-      toast.error(err.response?.data?.error || 'Failed to add charge')
+      const errorMsg = err.response?.data?.error || 'Failed to add charge'
+      toast.error(errorMsg)
+      if (errorMsg.includes('modified by another user') || errorMsg.includes('Please refresh')) {
+        await loadFolio()
+      }
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -80,7 +88,6 @@ export default function GuestFolioModal({ stayId, onClose }: { stayId: string; o
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700 text-2xl">&times;</button>
         </div>
 
-        {/* Folio items table */}
         <div className="mb-4">
           <table className="w-full text-sm">
             <thead>
@@ -113,7 +120,6 @@ export default function GuestFolioModal({ stayId, onClose }: { stayId: string; o
           </table>
         </div>
 
-        {/* Add Charge Button / Form */}
         {!showAdd ? (
           <button
             onClick={() => setShowAdd(true)}
@@ -156,7 +162,9 @@ export default function GuestFolioModal({ stayId, onClose }: { stayId: string; o
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={() => setShowAdd(false)} className="flex-1 py-2 border rounded">Cancel</button>
-              <button type="submit" className="flex-1 py-2 bg-blue-600 text-white rounded">Save</button>
+              <button type="submit" disabled={submitting} className="flex-1 py-2 bg-blue-600 text-white rounded disabled:opacity-50">
+                {submitting ? 'Saving...' : 'Save'}
+              </button>
             </div>
           </form>
         )}

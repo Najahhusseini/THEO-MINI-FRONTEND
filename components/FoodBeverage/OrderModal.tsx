@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useDebouncedClick } from '@/hooks/useDebouncedClick';
@@ -15,6 +16,8 @@ export default function OrderModal({ type, onClose, onSuccess }: OrderModalProps
   const [roomNumber, setRoomNumber] = useState('');
   const [items, setItems] = useState([{ name: '', quantity: 1, unitPrice: 0 }]);
   const [loading, setLoading] = useState(false);
+  // ✅ Generate a unique idempotency key when the modal opens
+  const [idempotencyKey] = useState(() => uuidv4());
 
   const addItem = () => setItems([...items, { name: '', quantity: 1, unitPrice: 0 }]);
   const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
@@ -37,10 +40,12 @@ export default function OrderModal({ type, onClose, onSuccess }: OrderModalProps
 
     setLoading(true);
     try {
+      // ✅ Send idempotencyKey to backend
       await api.post('/food-beverage/orders', {
         type,
         roomNumber,
         items: validItems,
+        idempotencyKey,
       });
       toast.success('Order created');
       onSuccess();
